@@ -34,9 +34,6 @@ func TestDepositExportWritesSnapshot(t *testing.T) {
 	if err := security.AtomicWriteJSON(models.PaymentData{}, config.AppConfig.DataPath); err != nil {
 		t.Fatalf("write payments: %v", err)
 	}
-	if err := os.WriteFile(config.AppConfig.LedgerPath, []byte("ledger line\n"), 0o600); err != nil {
-		t.Fatalf("write ledger: %v", err)
-	}
 
 	exportPath := filepath.Join(tmp, "export.json")
 	if err := DepositExport(exportPath); err != nil {
@@ -54,9 +51,6 @@ func TestDepositExportWritesSnapshot(t *testing.T) {
 	if len(snapshot.Deposits) != 1 {
 		t.Fatalf("deposits count = %d, want 1", len(snapshot.Deposits))
 	}
-	if snapshot.Ledger != "ledger line\n" {
-		t.Fatalf("ledger = %q", snapshot.Ledger)
-	}
 }
 
 func TestDepositBackupCreatesFiles(t *testing.T) {
@@ -69,9 +63,6 @@ func TestDepositBackupCreatesFiles(t *testing.T) {
 	if err := security.AtomicWriteJSON(models.PaymentData{}, config.AppConfig.DataPath); err != nil {
 		t.Fatalf("write payments: %v", err)
 	}
-	if err := os.WriteFile(config.AppConfig.LedgerPath, []byte("ledger line\n"), 0o600); err != nil {
-		t.Fatalf("write ledger: %v", err)
-	}
 
 	if err := DepositBackup(); err != nil {
 		t.Fatalf("backup: %v", err)
@@ -81,8 +72,8 @@ func TestDepositBackupCreatesFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read backups: %v", err)
 	}
-	if len(entries) != 3 {
-		t.Fatalf("backup count = %d, want 3", len(entries))
+	if len(entries) != 2 {
+		t.Fatalf("backup count = %d, want 2", len(entries))
 	}
 }
 
@@ -90,6 +81,5 @@ func setTestConfig(tmp string) {
 	config.AppConfig = &config.Config{
 		DataPath:         filepath.Join(tmp, "payments.json"),
 		DepositsDataPath: filepath.Join(tmp, "deposits.json"),
-		LedgerPath:       filepath.Join(tmp, "transactions.ledger"),
 	}
 }

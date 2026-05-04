@@ -17,7 +17,6 @@ type Config struct {
 	TelegramUserID   int64
 	DataPath         string
 	DepositsDataPath string
-	LedgerPath       string
 	LogLevel         slog.Level
 }
 
@@ -57,11 +56,6 @@ func Init() error {
 		return errors.NewConfigurationError("ошибка расширения пути DEPOSITS_DATA_PATH", err)
 	}
 
-	ledgerPath, err := expandPath(getEnv("LEDGER_PATH", "~/ObsidianVault/finances/transactions.ledger"))
-	if err != nil {
-		return errors.NewConfigurationError("ошибка расширения пути LEDGER_PATH", err)
-	}
-
 	logLevel := slog.LevelError
 	if envLogLevel := os.Getenv("LOG_LEVEL"); envLogLevel != "" {
 		switch envLogLevel {
@@ -81,7 +75,6 @@ func Init() error {
 		TelegramUserID:   getEnvInt64("TELEGRAM_USER_ID", 0),
 		DataPath:         dataPath,
 		DepositsDataPath: depositsDataPath,
-		LedgerPath:       ledgerPath,
 		LogLevel:         logLevel,
 	}
 

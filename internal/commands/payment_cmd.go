@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -124,14 +123,6 @@ func MarkPaid() error {
 		"payment_id", payment.ID,
 		"name", payment.Name,
 		"amount", payment.Amount)
-
-	if err := storage.RecordPaymentToLedger(*payment, config.AppConfig.LedgerPath); err != nil {
-		slog.Error("Ошибка записи платежа в ledger",
-			"payment_id", payment.ID,
-			"error", err)
-
-		return fmt.Errorf("ошибка записи в ledger: %v", err)
-	}
 
 	slog.Debug("Отладочная информация перед обновлением",
 		"payment", payment.Name,
@@ -318,9 +309,6 @@ func ListPayments() error {
 			days := utils.DaysUntil(p.DueDate)
 			amountRubles := utils.FormatRubles(p.Amount)
 			fmt.Printf("   • %s: %s₽ (%d дней) [%s]", p.Name, amountRubles, -days, p.Type)
-			if p.LedgerAccount != "" {
-				fmt.Printf(" [%s]", p.LedgerAccount)
-			}
 			fmt.Println()
 		}
 		fmt.Println()
@@ -331,9 +319,6 @@ func ListPayments() error {
 			days := utils.DaysUntil(p.DueDate)
 			amountRubles := utils.FormatRubles(p.Amount)
 			fmt.Printf("   • %s: %s₽ (%d дней) [%s]", p.Name, amountRubles, days, p.Type)
-			if p.LedgerAccount != "" {
-				fmt.Printf(" [%s]", p.PaymentDate)
-			}
 			fmt.Println()
 		}
 		fmt.Println()
@@ -344,9 +329,6 @@ func ListPayments() error {
 			days := utils.DaysUntil(p.DueDate)
 			amountRubles := utils.FormatRubles(p.Amount)
 			fmt.Printf("   • %s: %s₽ (%d дней) [%s]", p.Name, amountRubles, days, p.Type)
-			if p.LedgerAccount != "" {
-				fmt.Printf(" [%s]", p.LedgerAccount)
-			}
 			fmt.Println()
 		}
 		fmt.Println()
@@ -365,7 +347,6 @@ func AddPayment() error {
 	days := addCmd.Int("days", 0, "Количество дней (альтернатива дате)")
 	paymentType := addCmd.String("type", "monthly", "Тип: monthly, yearly, one-time")
 	category := addCmd.String("category", "", "Категория")
-	ledgerAccount := addCmd.String("ledger-account", "", "Счет для ledger")
 
 	addCmd.Parse(os.Args[2:])
 
@@ -416,14 +397,13 @@ func AddPayment() error {
 	}
 	id := uuid.New().String()
 	newPayment := models.Payment{
-		ID:            id,
-		Name:          *name,
-		Amount:        amount,
-		DueDate:       finalDueDate,
-		Type:          *paymentType,
-		Category:      *category,
-		LedgerAccount: *ledgerAccount,
-		DaysInterval:  *days,
+		ID:           id,
+		Name:         *name,
+		Amount:       amount,
+		DueDate:      finalDueDate,
+		Type:         *paymentType,
+		Category:     *category,
+		DaysInterval: *days,
 	}
 	data.Payments = append(data.Payments, newPayment)
 	if err := storage.SavePayments(data, config.AppConfig.DataPath); err != nil {
@@ -445,38 +425,9 @@ func AddPayment() error {
 	if *days > 0 {
 		intervalInfo = fmt.Sprintf(" [интервал %d дней]", *days)
 	}
-	accountInfo := ""
-	if *ledgerAccount != "" {
-		accountInfo = fmt.Sprintf(" -> %s", *ledgerAccount)
-	}
 	amountRubles := utils.FormatRubles(amount)
-	fmt.Printf("Платеж добавлен: %s - %s₽ - %s [%s]%s%s\n", *name, amountRubles, finalDueDate, *paymentType, intervalInfo, accountInfo)
+	fmt.Printf("Платеж добавлен: %s - %s₽ - %s [%s]%s\n", *name, amountRubles, finalDueDate, *paymentType, intervalInfo)
 
-	return nil
-}
-
-func ShowLedger() error {
-	ledgerPath := storage.ExpandPath(config.AppConfig.LedgerPath)
-	if _, err := os.Stat(ledgerPath); os.IsNotExist(err) {
-		slog.Warn("Ошибка чтения файла ledger", "path", ledgerPath)
-
-		return fmt.Errorf("ledger файл не существует")
-	}
-	content, err := os.ReadFile(ledgerPath)
-	if err != nil {
-		slog.Error("Ошибка чтения файла ledger", "path", ledgerPath, "error", err)
-		return fmt.Errorf("ошибка чтения ledger файл: %v", err)
-	}
-	slog.Debug("Ledger файл прочитан", "size_bytes", len(content))
-
-	lines := strings.Split(string(content), "\n")
-	recentLines := lines[len(lines)-10:]
-	fmt.Println("Послдение записи в Ledger:")
-	for _, line := range recentLines {
-		if strings.TrimSpace(line) != "" {
-			fmt.Println(line)
-		}
-	}
 	return nil
 }
 
@@ -546,7 +497,6 @@ func ShowHelp() {
   payments-manager paid               - Отметить ближайший платеж как оплаченный
   payments-manager list               - Показать все активные платежи
   payments-manager add                - Добавить новый платеж
-  payments-manager ledger             - Показать последние записи Ledger
   payments-manager cleanup            - Очистить старые платежи
 
 Команда add (примеры):
@@ -556,6 +506,5 @@ func ShowHelp() {
   # С указанием дней
   payments-manager add --name "Хостинг" --amount 1500.00 --days 40 --type one-time --category hosting
   
-  # С указанием счета Ledger
-  payments-manager add --name "Интернет" --amount 500.00 --date 2024-11-01 --type monthly --category utilities --ledger-account Liabilities:AlfaBank`)
+  payments-manager add --name "Интернет" --amount 500.00 --date 2024-11-01 --type monthly --category utilities`)
 }

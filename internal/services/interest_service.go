@@ -119,20 +119,6 @@ func (s *InterestService) processDepositAccrual(deposit *models.Deposit) Accrual
 		}
 	}
 
-	if err := storage.RecordDepositToLedger(*deposit, "interest", amountKopecks, description, config.AppConfig.LedgerPath); err != nil {
-		return AccrualResult{
-			DepositID:   deposit.ID,
-			DepositName: deposit.Name,
-			Income:      income,
-			Success:     false,
-			Error: errors.WrapError(
-				errors.ErrStorage,
-				fmt.Sprintf("ошибка записи в ledger для вклада '%s'", deposit.Name),
-				err,
-			),
-		}
-	}
-
 	if err := storage.UpdateDepositAmount(deposit.ID, amountKopecks, config.AppConfig.DepositsDataPath); err != nil {
 		return AccrualResult{
 			DepositID:   deposit.ID,

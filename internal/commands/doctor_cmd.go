@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/sunriseex/finance-manager/internal/config"
@@ -20,7 +19,6 @@ func DepositDoctor() error {
 	}{
 		{name: "deposits JSON", err: validateJSONFile(config.AppConfig.DepositsDataPath)},
 		{name: "payments JSON", err: validateJSONFile(config.AppConfig.DataPath)},
-		{name: "ledger directory", err: validateWritableDirectory(filepath.Dir(config.AppConfig.LedgerPath))},
 	}
 
 	failed := 0

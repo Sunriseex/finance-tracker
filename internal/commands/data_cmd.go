@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -18,13 +17,11 @@ type ExportSnapshot struct {
 	Source     ExportSnapshotSource `json:"source"`
 	Deposits   []models.Deposit     `json:"deposits"`
 	Payments   []models.Payment     `json:"payments"`
-	Ledger     string               `json:"ledger,omitempty"`
 }
 
 type ExportSnapshotSource struct {
 	DepositsPath string `json:"deposits_path"`
 	PaymentsPath string `json:"payments_path"`
-	LedgerPath   string `json:"ledger_path"`
 }
 
 func DepositExport(outputPath string) error {
@@ -42,21 +39,14 @@ func DepositExport(outputPath string) error {
 		return errors.NewStorageError("экспорт платежей", err)
 	}
 
-	ledger, err := readOptionalTextFile(config.AppConfig.LedgerPath)
-	if err != nil {
-		return errors.NewStorageError("экспорт ledger", err)
-	}
-
 	snapshot := ExportSnapshot{
 		ExportedAt: time.Now().UTC(),
 		Source: ExportSnapshotSource{
 			DepositsPath: config.AppConfig.DepositsDataPath,
 			PaymentsPath: config.AppConfig.DataPath,
-			LedgerPath:   config.AppConfig.LedgerPath,
 		},
 		Deposits: deposits.Deposits,
 		Payments: payments.Payments,
-		Ledger:   ledger,
 	}
 
 	if err := security.AtomicWriteJSON(snapshot, outputPath); err != nil {
@@ -78,7 +68,6 @@ func DepositBackup() error {
 	}{
 		{name: "deposits", path: config.AppConfig.DepositsDataPath},
 		{name: "payments", path: config.AppConfig.DataPath},
-		{name: "ledger", path: config.AppConfig.LedgerPath},
 	}
 
 	created := 0
@@ -102,15 +91,4 @@ func DepositBackup() error {
 
 	fmt.Printf("✅ Backup completed: %d file(s)\n", created)
 	return nil
-}
-
-func readOptionalTextFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return string(data), nil
 }

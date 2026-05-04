@@ -22,8 +22,6 @@ func Execute() error {
 		return ListPayments()
 	case "add":
 		return AddPayment()
-	case "ledger":
-		return ShowLedger()
 	case "cleanup":
 		return CleanupPayments()
 	case "help", "--help", "-h":
