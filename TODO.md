@@ -193,8 +193,8 @@ type InterestRule struct {
 
 ## Сервисы
 
-* [ ] `AccountService`
-* [ ] `TransactionService`
+* [x] `AccountService`
+* [x] `TransactionService`
 * [ ] `TransferService`
 * [ ] `InterestRuleService`
 * [x] `BalanceService`
@@ -211,8 +211,8 @@ type InterestRule struct {
 
 ## Acceptance Criteria
 
-* [ ] Можно создать `Account` без WebUI.
-* [ ] Можно создать `Transaction` без WebUI.
+* [x] Можно создать `Account` без WebUI.
+* [x] Можно создать `Transaction` без WebUI.
 * [x] Можно посчитать баланс счета через список транзакций.
 * [ ] Можно создать накопительный счет с правилом процентов.
 * [ ] Можно начислить проценты как отдельную транзакцию.
