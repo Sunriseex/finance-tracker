@@ -195,17 +195,17 @@ type InterestRule struct {
 
 * [x] `AccountService`
 * [x] `TransactionService`
-* [ ] `TransferService`
+* [x] `TransferService`
 * [ ] `InterestRuleService`
 * [x] `BalanceService`
 
 ## Правила
 
 * [x] Баланс счета считается из операций.
-* [ ] Перевод создает две операции:
+* [x] Перевод создает две операции:
 
-  * [ ] `transfer_out` на исходном счете
-  * [ ] `transfer_in` на целевом счете
+  * [x] `transfer_out` на исходном счете
+  * [x] `transfer_in` на целевом счете
 * [ ] Начисление процентов создает операцию `interest_income`.
 * [ ] Ручная правка баланса создает `adjustment`.
 
