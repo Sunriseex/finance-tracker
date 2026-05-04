@@ -34,7 +34,7 @@ func BackupFile(path string) (string, error) {
 		return "", fmt.Errorf("create backup directory: %w", err)
 	}
 
-	backupPath := filepath.Join(backupDir, filepath.Base(path)+"."+time.Now().UTC().Format("20060102T150405Z")+".bak")
+	backupPath := filepath.Join(backupDir, filepath.Base(path)+"."+time.Now().UTC().Format("20060102T150405.000000000Z")+".bak")
 	target, err := os.OpenFile(backupPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("create backup: %w", err)

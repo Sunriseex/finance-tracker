@@ -19,13 +19,13 @@
 
 * [ ] Проверить все текущие команды:
 
-  * [ ] `list`
-  * [ ] `create`
-  * [ ] `topup`
-  * [ ] `calculate`
-  * [ ] `update`
-  * [ ] `accrue-interest`
-  * [ ] `find`
+  * [x] `list`
+  * [x] `create`
+  * [x] `topup`
+  * [x] `calculate`
+  * [x] `update`
+  * [x] `accrue-interest`
+  * [x] `find`
   * [x] `help`
 * [x] Убрать из help команды, которые реально не реализованы.
 * [x] Добавить команду `version`.
@@ -64,8 +64,8 @@ func BpsToPercentString(bps int64) string
 
 * [x] Добавить backup перед записью JSON.
 * [x] Добавить проверку целостности JSON-файлов.
-* [ ] Добавить команду `export`.
-* [ ] Добавить команду `backup`.
+* [x] Добавить команду `export`.
+* [x] Добавить команду `backup`.
 
 ## Acceptance Criteria
 
@@ -73,7 +73,7 @@ func BpsToPercentString(bps int64) string
 * [ ] Все денежные значения внутри бизнес-логики используют `int64`.
 * [x] Покрыты тестами базовые расчеты процентов.
 * [x] Есть резервная копия данных перед изменением файлов.
-* [ ] CLI можно использовать как раньше.
+* [x] CLI можно использовать как раньше.
 
 ---
 
