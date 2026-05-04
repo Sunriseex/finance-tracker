@@ -270,7 +270,7 @@ func ListPayments() error {
 	}
 	var activePayments []models.Payment
 
-	totalAmount := 0
+	var totalAmount int64
 	for _, p := range data.Payments {
 		if p.PaymentDate == "" {
 			activePayments = append(activePayments, p)

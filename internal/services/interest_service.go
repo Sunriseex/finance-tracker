@@ -119,7 +119,7 @@ func (s *InterestService) processDepositAccrual(deposit *models.Deposit) Accrual
 		}
 	}
 
-	if err := storage.RecordDepositToLedger(*deposit, "interest", int(amountKopecks), description, config.AppConfig.LedgerPath); err != nil {
+	if err := storage.RecordDepositToLedger(*deposit, "interest", amountKopecks, description, config.AppConfig.LedgerPath); err != nil {
 		return AccrualResult{
 			DepositID:   deposit.ID,
 			DepositName: deposit.Name,
@@ -133,7 +133,7 @@ func (s *InterestService) processDepositAccrual(deposit *models.Deposit) Accrual
 		}
 	}
 
-	if err := storage.UpdateDepositAmount(deposit.ID, int(amountKopecks), config.AppConfig.DepositsDataPath); err != nil {
+	if err := storage.UpdateDepositAmount(deposit.ID, amountKopecks, config.AppConfig.DepositsDataPath); err != nil {
 		return AccrualResult{
 			DepositID:   deposit.ID,
 			DepositName: deposit.Name,

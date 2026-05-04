@@ -12,7 +12,7 @@ import (
 	"github.com/sunriseex/finance-manager/pkg/money"
 )
 
-func DepositCreate(name, bank, depositType string, amount int, interestRate float64, termMonths int, promoRate *float64, promoEndDate string) error {
+func DepositCreate(name, bank, depositType string, amount int64, interestRate float64, termMonths int, promoRate *float64, promoEndDate string) error {
 	service := services.NewDepositService()
 
 	req := &services.CreateDepositRequest{
@@ -120,7 +120,7 @@ func DepositList() error {
 	return nil
 }
 
-func DepositTopUp(depositID string, amount int) error {
+func DepositTopUp(depositID string, amount int64) error {
 	service := services.NewDepositService()
 
 	req := &services.TopUpRequest{
@@ -263,7 +263,7 @@ func DepositFind(name, bank string) error {
 	return nil
 }
 
-func ParseRubles(amountStr string) (int, error) {
+func ParseRubles(amountStr string) (int64, error) {
 	amount, err := money.ParsePositiveRUB(amountStr)
 	if err != nil {
 		return 0, errors.NewValidationError(

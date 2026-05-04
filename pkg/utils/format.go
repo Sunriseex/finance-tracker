@@ -6,11 +6,11 @@ import (
 	"github.com/sunriseex/finance-manager/pkg/money"
 )
 
-func FormatRubles(kopecks int) string {
+func FormatRubles(kopecks int64) string {
 	return money.FormatLegacyKopecks(kopecks)
 }
 
-func RublesToKopecks(rublesStr string) (int, error) {
+func RublesToKopecks(rublesStr string) (int64, error) {
 	amount, err := money.ParseRUB(rublesStr)
 	if err != nil {
 		return 0, fmt.Errorf("неверный формат суммы: %w", err)

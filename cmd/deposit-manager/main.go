@@ -168,7 +168,7 @@ func handleCreateCommand(args []string) error {
 
 	var createParams struct {
 		name, bank, depositType, promoEndDate string
-		amount                                int
+		amount                                int64
 		rate                                  float64
 		termMonths                            int
 		promoRate                             *float64
@@ -214,7 +214,7 @@ func handleCreateCommand(args []string) error {
 
 func validateAndParseCreateParams(params *struct {
 	name, bank, depositType, promoEndDate string
-	amount                                int
+	amount                                int64
 	rate                                  float64
 	termMonths                            int
 	promoRate                             *float64

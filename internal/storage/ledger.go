@@ -60,7 +60,7 @@ func RecordPaymentToLedger(payment models.Payment, ledgerPath string) error {
 	return nil
 }
 
-func RecordDepositToLedger(deposit models.Deposit, operationType string, amount int, description, ledgerPath string) error {
+func RecordDepositToLedger(deposit models.Deposit, operationType string, amount int64, description, ledgerPath string) error {
 
 	slog.Debug("Запись операции по вкладу в ledger",
 		"deposit_name", deposit.Name,

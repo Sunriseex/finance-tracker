@@ -12,8 +12,8 @@ type DepositValidator struct {
 	allowedBanks    map[string]bool
 	allowedTypes    map[string]bool
 	allowedCapTypes map[string]bool
-	minAmount       int
-	maxAmount       int
+	minAmount       int64
+	maxAmount       int64
 }
 
 func NewDepositValidator() *DepositValidator {
@@ -201,7 +201,7 @@ func (v *DepositValidator) getAllowedBanksList() []string {
 	return banks
 }
 
-func (v *DepositValidator) ValidateCreateRequest(name, bank, depositType string, amount int, interestRate float64, termMonths int, promoRate *float64, promoEndDate string) error {
+func (v *DepositValidator) ValidateCreateRequest(name, bank, depositType string, amount int64, interestRate float64, termMonths int, promoRate *float64, promoEndDate string) error {
 	testDeposit := &models.Deposit{
 		Name:           name,
 		Bank:           bank,

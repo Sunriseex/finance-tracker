@@ -14,7 +14,7 @@ func CalculateIncome(deposit models.Deposit, days int) decimal.Decimal {
 		return decimal.Zero
 	}
 
-	amount := decimal.NewFromInt(int64(deposit.Amount)).Div(decimal.NewFromInt(100))
+	amount := decimal.NewFromInt(deposit.Amount).Div(decimal.NewFromInt(100))
 
 	if deposit.Type == "term" && deposit.StartDate != "" && deposit.EndDate != "" {
 		totalDays, err := dates.DaysBetween(deposit.StartDate, deposit.EndDate)

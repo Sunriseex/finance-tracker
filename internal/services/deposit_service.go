@@ -27,7 +27,7 @@ type CreateDepositRequest struct {
 	Name         string
 	Bank         string
 	Type         string
-	Amount       int
+	Amount       int64
 	InterestRate float64
 	TermMonths   int
 	PromoRate    *float64
@@ -143,14 +143,14 @@ func (s *DepositService) Create(req *CreateDepositRequest) (*CreateDepositRespon
 
 type TopUpRequest struct {
 	DepositID   string
-	Amount      int
+	Amount      int64
 	Description string
 }
 
 type TopUpResponse struct {
 	Success        bool
-	NewAmount      int
-	PreviousAmount int
+	NewAmount      int64
+	PreviousAmount int64
 	Message        string
 }
 
@@ -431,7 +431,7 @@ type ListDepositsResponse struct {
 	Success     bool
 	Deposits    []models.Deposit
 	TotalCount  int
-	TotalAmount int
+	TotalAmount int64
 	Message     string
 }
 
@@ -445,7 +445,7 @@ func (s *DepositService) List() (*ListDepositsResponse, error) {
 		return nil, errors.NewStorageError("загрузка списка вкладов", err)
 	}
 
-	totalAmount := 0
+	var totalAmount int64
 	for i := range data.Deposits {
 		totalAmount += data.Deposits[i].Amount
 	}

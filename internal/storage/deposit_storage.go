@@ -104,7 +104,7 @@ func SaveDeposit(data models.DepositsData, dataPath string) error {
 	return nil
 }
 
-func UpdateDepositAmount(depositID string, amount int, dataPath string) error {
+func UpdateDepositAmount(depositID string, amount int64, dataPath string) error {
 
 	slog.Debug("Обновление суммы вклада", "deposit_id", depositID, "amount", amount)
 

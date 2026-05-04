@@ -41,28 +41,24 @@ func ParsePositiveRUB(input string) (decimal.Decimal, error) {
 	return amount, nil
 }
 
-func LegacyKopecksToDecimal(kopecks int) decimal.Decimal {
-	return decimal.NewFromInt(int64(kopecks)).Div(kopecksPerRub).Round(2)
+func LegacyKopecksToDecimal(kopecks int64) decimal.Decimal {
+	return decimal.NewFromInt(kopecks).Div(kopecksPerRub).Round(2)
 }
 
-func DecimalToLegacyKopecks(amount decimal.Decimal) (int, error) {
+func DecimalToLegacyKopecks(amount decimal.Decimal) (int64, error) {
 	kopecks := amount.Round(2).Mul(kopecksPerRub)
 	if !kopecks.IsInteger() {
 		return 0, fmt.Errorf("amount cannot be represented as kopecks: %s", amount.String())
 	}
 
-	value := kopecks.IntPart()
-	if value > int64(^uint(0)>>1) {
-		return 0, fmt.Errorf("amount is too large: %s", amount.String())
-	}
-	return int(value), nil
+	return kopecks.IntPart(), nil
 }
 
 func FormatRUB(amount decimal.Decimal) string {
 	return amount.Round(2).StringFixed(2)
 }
 
-func FormatLegacyKopecks(kopecks int) string {
+func FormatLegacyKopecks(kopecks int64) string {
 	return FormatRUB(LegacyKopecksToDecimal(kopecks))
 }
 
