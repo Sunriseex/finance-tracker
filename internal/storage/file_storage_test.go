@@ -39,7 +39,7 @@ func TestMutatePaymentsReturnsCallbackErrorUnchanged(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "payments.json")
 	wantErr := errors.New("нет активных платежей")
 
-	err := MutatePayments(path, func(data *models.PaymentData) error {
+	err := MutatePayments(path, func(_ *models.PaymentData) error {
 		return wantErr
 	})
 	if !errors.Is(err, wantErr) {

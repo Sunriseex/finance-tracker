@@ -17,10 +17,16 @@ func generateDepositID() string {
 }
 
 func CreateDeposit(deposit *models.Deposit, dataPath string) error {
+	if deposit == nil {
+		return errors.NewValidationError("deposit is required", nil)
+	}
 
 	slog.Debug("Создание вклада в хранилище", "name", deposit.Name, "path", dataPath)
 
 	expandedPath := ExpandPath(dataPath)
+
+	var domainErr error
+
 	if err := security.WithFileLock(expandedPath, func() error {
 		data, err := LoadDeposits(expandedPath)
 		if err != nil {
@@ -48,13 +54,16 @@ func CreateDeposit(deposit *models.Deposit, dataPath string) error {
 		for i := range data.Deposits {
 			existingDeposit := &data.Deposits[i]
 			if existingDeposit.Name == deposit.Name && existingDeposit.Bank == deposit.Bank {
-				return errors.NewValidationError(
+				domainErr = errors.NewValidationError(
 					"вклад с таким названием уже существует в этом банке",
 					map[string]interface{}{
 						"name": deposit.Name,
 						"bank": deposit.Bank,
 					},
 				)
+
+				//nolint:wrapcheck // Preserve validation error type for user-facing/domain handling.
+				return domainErr
 			}
 		}
 
@@ -62,8 +71,14 @@ func CreateDeposit(deposit *models.Deposit, dataPath string) error {
 
 		return saveDepositUnlocked(*data, expandedPath)
 	}); err != nil {
+		if domainErr != nil {
+			//nolint:wrapcheck // Preserve validation error type for user-facing/domain handling.
+			return domainErr
+		}
+
 		return errors.NewStorageError("создание вклада", err)
 	}
+
 	return nil
 }
 
@@ -156,6 +171,7 @@ func UpdateDepositAmount(depositID string, amount int64, dataPath string) error 
 							"resulting_amount": newAmount,
 						},
 					)
+					//nolint:wrapcheck // Preserve domain error code for user-facing/business handling.
 					return domainErr
 				}
 
@@ -174,12 +190,14 @@ func UpdateDepositAmount(depositID string, amount int64, dataPath string) error 
 		if !found {
 			slog.Warn("Вклад не найден для обновления суммы", "deposit_id", depositID)
 			domainErr = errors.NewNotFoundError("вклад", depositID)
+			//nolint:wrapcheck // Preserve domain error code for user-facing/business handling.
 			return domainErr
 		}
 
 		return saveDepositUnlocked(*data, expandedPath)
 	}); err != nil {
 		if domainErr != nil {
+			//nolint:wrapcheck // Preserve domain error code for user-facing/business handling.
 			return domainErr
 		}
 		return errors.NewStorageError("обновление суммы вклада", err)
@@ -216,12 +234,14 @@ func UpdateDeposit(updatedDeposit *models.Deposit, dataPath string) error {
 
 		if !found {
 			domainErr = errors.NewNotFoundError("вклад", updatedDeposit.ID)
+			//nolint:wrapcheck // Preserve domain error code for user-facing/business handling.
 			return domainErr
 		}
 
 		return saveDepositUnlocked(*data, expandedPath)
 	}); err != nil {
 		if domainErr != nil {
+			//nolint:wrapcheck // Preserve domain error code for user-facing/business handling.
 			return domainErr
 		}
 		return errors.NewStorageError("обновление вклада", err)
