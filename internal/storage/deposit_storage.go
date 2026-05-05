@@ -189,6 +189,9 @@ func UpdateDepositAmount(depositID string, amount int64, dataPath string) error 
 
 func UpdateDeposit(updatedDeposit *models.Deposit, dataPath string) error {
 	expandedPath := ExpandPath(dataPath)
+
+	var domainErr error
+
 	if err := security.WithFileLock(expandedPath, func() error {
 		data, err := LoadDeposits(expandedPath)
 		if err != nil {
@@ -212,13 +215,18 @@ func UpdateDeposit(updatedDeposit *models.Deposit, dataPath string) error {
 		}
 
 		if !found {
-			return errors.NewNotFoundError("вклад", updatedDeposit.ID)
+			domainErr = errors.NewNotFoundError("вклад", updatedDeposit.ID)
+			return domainErr
 		}
 
 		return saveDepositUnlocked(*data, expandedPath)
 	}); err != nil {
+		if domainErr != nil {
+			return domainErr
+		}
 		return errors.NewStorageError("обновление вклада", err)
 	}
+
 	return nil
 }
 
