@@ -49,18 +49,13 @@ func (s *TransferService) Create(ctx context.Context, req CreateTransferRequest)
 
 	inRelatedID := fromAccountID
 	outRelatedID := toAccountID
-	outTx, err := s.transactions.Create(ctx, &CreateTransactionRequest{
+	created, err := s.transactions.CreateMany(ctx, &CreateTransactionRequest{
 		AccountID:        fromAccountID,
 		RelatedAccountID: &outRelatedID,
 		Type:             models.TransactionTypeTransferOut,
 		AmountMinor:      req.AmountMinor,
 		Description:      req.Description,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create transfer out transaction: %w", err)
-	}
-
-	inTx, err := s.transactions.Create(ctx, &CreateTransactionRequest{
+	}, &CreateTransactionRequest{
 		AccountID:        toAccountID,
 		RelatedAccountID: &inRelatedID,
 		Type:             models.TransactionTypeTransferIn,
@@ -68,8 +63,8 @@ func (s *TransferService) Create(ctx context.Context, req CreateTransferRequest)
 		Description:      req.Description,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create transfer in transaction: %w", err)
+		return nil, fmt.Errorf("create transfer transactions: %w", err)
 	}
 
-	return &CreateTransferResponse{Out: outTx, In: inTx}, nil
+	return &CreateTransferResponse{Out: &created[0], In: &created[1]}, nil
 }

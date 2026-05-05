@@ -18,6 +18,7 @@ type Config struct {
 	AppVersion       string
 	DataPath         string
 	DepositsDataPath string
+	DatabaseURL      string
 	LogLevel         slog.Level
 }
 
@@ -77,6 +78,7 @@ func Init() error {
 		AppVersion:       getEnv("APP_VERSION", "0.1.0-dev"),
 		DataPath:         dataPath,
 		DepositsDataPath: depositsDataPath,
+		DatabaseURL:      getEnv("DATABASE_URL", "postgres://finance_tracker:finance_tracker@localhost:5432/finance_tracker?sslmode=disable"),
 		LogLevel:         logLevel,
 	}
 
