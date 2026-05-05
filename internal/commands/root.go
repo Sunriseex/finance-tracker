@@ -3,14 +3,9 @@ package commands
 import (
 	"fmt"
 	"os"
-
-	"github.com/sunriseex/finance-manager/internal/config"
 )
 
 func Execute() error {
-	if err := config.Init(); err != nil {
-		return fmt.Errorf("ошибка инициализации конфига: %v", err)
-	}
 	if len(os.Args) == 1 {
 		return ListPayments()
 	}

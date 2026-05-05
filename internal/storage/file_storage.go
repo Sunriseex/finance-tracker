@@ -51,15 +51,34 @@ func SavePayments(data *models.PaymentData, dataPath string) error {
 func MutatePayments(dataPath string, fn func(*models.PaymentData) error) error {
 	expandedPath := ExpandPath(dataPath)
 	return security.WithFileLock(expandedPath, func() error {
-		data, err := LoadPayments(expandedPath)
+		data, err := loadPaymentsOrEmpty(expandedPath)
 		if err != nil {
 			return err
+		}
+		if data.Payments == nil {
+			data.Payments = []models.Payment{}
 		}
 		if err := fn(data); err != nil {
 			return err
 		}
 		return savePaymentsUnlocked(data, expandedPath)
 	})
+}
+
+func loadPaymentsOrEmpty(dataPath string) (*models.PaymentData, error) {
+	data, err := LoadPayments(dataPath)
+	if err == nil {
+		return data, nil
+	}
+
+	expandedPath := ExpandPath(dataPath)
+	if _, statErr := os.Stat(expandedPath); os.IsNotExist(statErr) {
+		return &models.PaymentData{
+			Payments: []models.Payment{},
+		}, nil
+	}
+
+	return nil, err
 }
 
 func savePaymentsUnlocked(data *models.PaymentData, expandedPath string) error {
