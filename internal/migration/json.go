@@ -54,11 +54,12 @@ type JSONMigrationReport struct {
 }
 
 func (m *JSONMigrator) MigrateDeposits(ctx context.Context, deposits []models.Deposit) (*JSONMigrationReport, error) {
-	if m.accounts == nil || m.transactions == nil || m.rules == nil {
+	if m.accounts == nil || m.transactions == nil || m.rules == nil || m.migration == nil {
 		return nil, fmt.Errorf("migration repositories are required")
 	}
 
 	report := &JSONMigrationReport{TotalDeposits: len(deposits)}
+
 	for i := range deposits {
 		select {
 		case <-ctx.Done():
@@ -129,21 +130,10 @@ func (m *JSONMigrator) migrateDeposit(ctx context.Context, deposit *models.Depos
 		CreatedAt:   now,
 	}
 
-	if m.migration != nil {
-		if err := m.migration.CreateMigratedDeposit(ctx, account, rule, transaction); err != nil {
-			return 0, fmt.Errorf("create migrated deposit: %w", err)
-		}
-	} else {
-		if err := m.accounts.Create(ctx, account); err != nil {
-			return 0, fmt.Errorf("create account: %w", err)
-		}
-		if err := m.rules.Create(ctx, rule); err != nil {
-			return 0, fmt.Errorf("create interest rule: %w", err)
-		}
-		if err := m.transactions.Create(ctx, transaction); err != nil {
-			return 0, fmt.Errorf("create initial balance transaction: %w", err)
-		}
+	if err := m.migration.CreateMigratedDeposit(ctx, account, rule, transaction); err != nil {
+		return 0, fmt.Errorf("create migrated deposit: %w", err)
 	}
+
 	report.CreatedAccounts++
 	report.CreatedInterestRules++
 	report.CreatedTransactions++
@@ -242,6 +232,11 @@ func interestRuleForDeposit(deposit *models.Deposit, accountID string, openedAt 
 		endDate = &date
 	}
 
+	capitalizationFrequency, err := capitalizationForDeposit(deposit.Capitalization)
+	if err != nil {
+		return nil, err
+	}
+
 	return &models.InterestRule{
 		ID:                      uuid.NewString(),
 		AccountID:               accountID,
@@ -249,7 +244,7 @@ func interestRuleForDeposit(deposit *models.Deposit, accountID string, openedAt 
 		PromoRateBps:            promoRateBps,
 		PromoEndDate:            promoEndDate,
 		AccrualFrequency:        models.AccrualFrequencyDaily,
-		CapitalizationFrequency: capitalizationForDeposit(deposit.Capitalization),
+		CapitalizationFrequency: capitalizationFrequency,
 		DayCountConvention:      models.DayCountConventionActual365,
 		IsActive:                true,
 		StartDate:               dateOnly(openedAt),
@@ -264,16 +259,20 @@ func accountTypeForDeposit(depositType string) models.AccountType {
 	return models.AccountTypeSavings
 }
 
-func capitalizationForDeposit(capitalization string) models.CapitalizationFrequency {
-	switch capitalization {
+func capitalizationForDeposit(capitalization string) (models.CapitalizationFrequency, error) {
+	switch strings.TrimSpace(capitalization) {
+	case "":
+		return models.CapitalizationFrequencyNone, nil
 	case models.CapitalizationDaily:
-		return models.CapitalizationFrequencyDaily
+		return models.CapitalizationFrequencyDaily, nil
 	case models.CapitalizationMonthly:
-		return models.CapitalizationFrequencyMonthly
+		return models.CapitalizationFrequencyMonthly, nil
 	case models.CapitalizationEnd:
-		return models.CapitalizationFrequencyEndOfTerm
+		return models.CapitalizationFrequencyEndOfTerm, nil
+	case "quarterly":
+		return "", fmt.Errorf("unsupported legacy capitalization: quarterly")
 	default:
-		return models.CapitalizationFrequencyNone
+		return "", fmt.Errorf("unsupported legacy capitalization: %q", capitalization)
 	}
 }
 
