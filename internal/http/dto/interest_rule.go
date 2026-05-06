@@ -33,14 +33,14 @@ type CreateInterestRuleRequest struct {
 
 type UpdateInterestRuleRequest struct {
 	AnnualRateBps           *int64                          `json:"annual_rate_bps"`
-	PromoRateBps            *int64                          `json:"promo_rate_bps"`
-	PromoEndDate            *string                         `json:"promo_end_date"`
+	PromoRateBps            NullableInt64                   `json:"promo_rate_bps"`
+	PromoEndDate            NullableString                  `json:"promo_end_date"`
 	AccrualFrequency        *models.AccrualFrequency        `json:"accrual_frequency"`
 	CapitalizationFrequency *models.CapitalizationFrequency `json:"capitalization_frequency"`
 	DayCountConvention      *models.DayCountConvention      `json:"day_count_convention"`
 	IsActive                *bool                           `json:"is_active"`
 	StartDate               *string                         `json:"start_date"`
-	EndDate                 *string                         `json:"end_date"`
+	EndDate                 NullableString                  `json:"end_date"`
 }
 
 type AccrueInterestRequest struct {

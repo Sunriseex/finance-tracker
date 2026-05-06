@@ -53,11 +53,38 @@ func run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	slog.Info("server listening", "addr", *addr)
+	serverErr := make(chan error, 1)
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("listen and serve: %w", err)
+	go func() {
+		slog.Info("server listening", "addr", *addr)
+
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- fmt.Errorf("listen and serve: %w", err)
+			return
+		}
+
+		serverErr <- nil
+	}()
+
+	select {
+	case err := <-serverErr:
+		return err
+
+	case <-ctx.Done():
+		slog.Info("shutdown signal received")
+
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			_ = server.Close()
+			return fmt.Errorf("shutdown server: %w", err)
+		}
+
+		if err := <-serverErr; err != nil {
+			return err
+		}
+
+		return nil
 	}
-
-	return nil
 }

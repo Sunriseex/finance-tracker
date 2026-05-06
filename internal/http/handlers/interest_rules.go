@@ -85,20 +85,30 @@ func (h *Handler) updateInterestRule(w http.ResponseWriter, r *http.Request) {
 	if req.AnnualRateBps != nil {
 		rule.AnnualRateBps = *req.AnnualRateBps
 	}
-	if req.PromoRateBps != nil {
-		rule.PromoRateBps = req.PromoRateBps
-	}
-	if req.PromoEndDate != nil {
-		date, err := parseOptionalDate(*req.PromoEndDate)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
-			return
+	if req.PromoRateBps.Set {
+		if !req.PromoRateBps.Valid {
+			rule.PromoRateBps = nil
+			rule.PromoEndDate = nil
+		} else {
+			promoRate := req.PromoRateBps.Value
+			rule.PromoRateBps = &promoRate
 		}
-		rule.PromoEndDate = nil
-		if !date.IsZero() {
+	}
+
+	if req.PromoEndDate.Set {
+		if !req.PromoEndDate.Valid || strings.TrimSpace(req.PromoEndDate.Value) == "" {
+			rule.PromoEndDate = nil
+			rule.PromoRateBps = nil
+		} else {
+			date, err := parseOptionalDate(req.PromoEndDate.Value)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+				return
+			}
 			rule.PromoEndDate = &date
 		}
 	}
+
 	if req.AccrualFrequency != nil {
 		rule.AccrualFrequency = *req.AccrualFrequency
 	}
@@ -121,14 +131,15 @@ func (h *Handler) updateInterestRule(w http.ResponseWriter, r *http.Request) {
 			rule.StartDate = date
 		}
 	}
-	if req.EndDate != nil {
-		date, err := parseOptionalDate(*req.EndDate)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
-			return
-		}
-		rule.EndDate = nil
-		if !date.IsZero() {
+	if req.EndDate.Set {
+		if !req.EndDate.Valid || strings.TrimSpace(req.EndDate.Value) == "" {
+			rule.EndDate = nil
+		} else {
+			date, err := parseOptionalDate(req.EndDate.Value)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+				return
+			}
 			rule.EndDate = &date
 		}
 	}
@@ -220,10 +231,6 @@ func (h *Handler) ruleForAccrual(r *http.Request, accountID, ruleID string) (*mo
 			return nil, err
 		}
 
-		if rule.AccountID != accountID {
-			return nil, repository.ErrNotFound
-		}
-
 		return rule, nil
 	}
 
@@ -296,7 +303,7 @@ func parseOptionalDatePtr(input *string) (*time.Time, error) {
 	}
 	date, err := parseOptionalDate(*input)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse optional date: %w", err)
 	}
 	if date.IsZero() {
 		//nolint:nilnil // empty date string clears optional date.
