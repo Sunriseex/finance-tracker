@@ -170,8 +170,13 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rule, err := h.ruleForAccrual(r, accountID, req.RuleID)
+	rule, err := h.ruleForAccrual(r, accountID, req.RuleID, accrualDate)
 	if err != nil {
+		if _, ok := err.(validationError); ok {
+			writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+			return
+		}
+
 		writeServiceError(w, err)
 		return
 	}
@@ -180,6 +185,9 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
+
+	transactions = transactionsUpToDate(transactions, accrualDate)
+
 	balance, err := services.NewBalanceService().Calculate(r.Context(), services.CalculateBalanceRequest{
 		AccountID:    accountID,
 		Transactions: transactions,
@@ -219,7 +227,7 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) ruleForAccrual(r *http.Request, accountID, ruleID string) (*models.InterestRule, error) {
+func (h *Handler) ruleForAccrual(r *http.Request, accountID, ruleID string, accrualDate time.Time) (*models.InterestRule, error) {
 	ruleID = strings.TrimSpace(ruleID)
 	if ruleID != "" {
 		rule, err := h.store.InterestRules().GetByID(r.Context(), ruleID)
@@ -231,6 +239,10 @@ func (h *Handler) ruleForAccrual(r *http.Request, accountID, ruleID string) (*mo
 			return nil, err
 		}
 
+		if !interestRuleActiveOn(rule, accrualDate) {
+			return nil, errValidation("interest rule is not active on " + dateOnly(accrualDate).Format(time.DateOnly))
+		}
+
 		return rule, nil
 	}
 
@@ -239,13 +251,12 @@ func (h *Handler) ruleForAccrual(r *http.Request, accountID, ruleID string) (*mo
 		return nil, fmt.Errorf("list account interest rules: %w", err)
 	}
 
-	for i := range rules {
-		if rules[i].IsActive {
-			return &rules[i], nil
-		}
+	rule := latestApplicableInterestRule(rules, accrualDate)
+	if rule == nil {
+		return nil, repository.ErrNotFound
 	}
 
-	return nil, repository.ErrNotFound
+	return rule, nil
 }
 
 func validateInterestRule(rule *models.InterestRule) error {
@@ -358,4 +369,54 @@ func ensureRuleBelongsToAccount(rule *models.InterestRule, accountID string) err
 		return repository.ErrNotFound
 	}
 	return nil
+}
+
+func latestApplicableInterestRule(rules []models.InterestRule, accrualDate time.Time) *models.InterestRule {
+	var selected *models.InterestRule
+
+	for i := range rules {
+		rule := &rules[i]
+		if !rule.IsActive || !interestRuleActiveOn(rule, accrualDate) {
+			continue
+		}
+
+		if selected == nil || dateOnly(rule.StartDate).After(dateOnly(selected.StartDate)) {
+			selected = rule
+		}
+	}
+
+	return selected
+}
+
+func interestRuleActiveOn(rule *models.InterestRule, accrualDate time.Time) bool {
+	date := dateOnly(accrualDate)
+	if date.IsZero() {
+		date = dateOnly(time.Now())
+	}
+
+	if date.Before(dateOnly(rule.StartDate)) {
+		return false
+	}
+
+	if rule.EndDate != nil && date.After(dateOnly(*rule.EndDate)) {
+		return false
+	}
+
+	return true
+}
+
+func transactionsUpToDate(transactions []models.Transaction, accrualDate time.Time) []models.Transaction {
+	date := dateOnly(accrualDate)
+	if date.IsZero() {
+		date = dateOnly(time.Now())
+	}
+
+	filtered := make([]models.Transaction, 0, len(transactions))
+	for i := range transactions {
+		if !dateOnly(transactions[i].OccurredAt).After(date) {
+			filtered = append(filtered, transactions[i])
+		}
+	}
+
+	return filtered
 }
