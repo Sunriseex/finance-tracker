@@ -9,12 +9,19 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sunriseex/finance-manager/internal/models"
+	"github.com/sunriseex/finance-manager/internal/repository"
 )
 
-type AccountService struct{}
+type AccountService struct {
+	repo repository.AccountRepository
+}
 
-func NewAccountService() *AccountService {
-	return &AccountService{}
+func NewAccountService(repos ...repository.AccountRepository) *AccountService {
+	var repo repository.AccountRepository
+	if len(repos) > 0 {
+		repo = repos[0]
+	}
+	return &AccountService{repo: repo}
 }
 
 type CreateAccountRequest struct {
@@ -58,7 +65,7 @@ func (s *AccountService) Create(ctx context.Context, req *CreateAccountRequest) 
 	}
 	now := time.Now()
 
-	return &models.Account{
+	account := &models.Account{
 		ID:        uuid.NewString(),
 		Name:      name,
 		Bank:      strings.TrimSpace(req.Bank),
@@ -68,7 +75,15 @@ func (s *AccountService) Create(ctx context.Context, req *CreateAccountRequest) 
 		OpenedAt:  openedAt,
 		CreatedAt: now,
 		UpdatedAt: now,
-	}, nil
+	}
+
+	if s.repo != nil {
+		if err := s.repo.Create(ctx, account); err != nil {
+			return nil, fmt.Errorf("save account: %w", err)
+		}
+	}
+
+	return account, nil
 }
 
 func validCurrency(currency string) bool {

@@ -1,6 +1,8 @@
 package services
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/sunriseex/finance-manager/internal/models"
@@ -43,3 +45,61 @@ func TestTransferServiceCreateRejectsSameAccount(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestTransferServiceCreatePersistsTransactionsAsBatch(t *testing.T) {
+	repo := &batchTransactionRepo{}
+	got, err := NewTransferService(NewTransactionService(repo)).Create(t.Context(), CreateTransferRequest{
+		FromAccountID: "account-1",
+		ToAccountID:   "account-2",
+		AmountMinor:   25_000,
+		Description:   "Move savings",
+	})
+	if err != nil {
+		t.Fatalf("create transfer: %v", err)
+	}
+	if got.Out == nil || got.In == nil {
+		t.Fatal("transfer transactions must be returned")
+	}
+	if repo.createCalls != 0 {
+		t.Fatalf("single create calls = %d, want 0", repo.createCalls)
+	}
+	if len(repo.batches) != 1 {
+		t.Fatalf("batch count = %d, want 1", len(repo.batches))
+	}
+	if len(repo.batches[0]) != 2 {
+		t.Fatalf("batch size = %d, want 2", len(repo.batches[0]))
+	}
+}
+
+type batchTransactionRepo struct {
+	createCalls int
+	batches     [][]models.Transaction
+}
+
+func (r *batchTransactionRepo) Create(context.Context, *models.Transaction) error {
+	r.createCalls++
+	return nil
+}
+
+func (r *batchTransactionRepo) CreateMany(_ context.Context, transactions []models.Transaction) error {
+	r.batches = append(r.batches, append([]models.Transaction(nil), transactions...))
+	return nil
+}
+
+func (r *batchTransactionRepo) GetByID(context.Context, string) (*models.Transaction, error) {
+	return nil, errNotImplemented
+}
+
+func (r *batchTransactionRepo) List(context.Context) ([]models.Transaction, error) {
+	return nil, nil
+}
+
+func (r *batchTransactionRepo) ListByAccount(context.Context, string) ([]models.Transaction, error) {
+	return nil, nil
+}
+
+func (r *batchTransactionRepo) Delete(context.Context, string) error {
+	return nil
+}
+
+var errNotImplemented = errors.New("not implemented")

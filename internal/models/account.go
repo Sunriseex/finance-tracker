@@ -15,6 +15,7 @@ const (
 
 type Account struct {
 	ID        string      `json:"id"`
+	LegacyID  *string     `json:"legacy_id,omitempty"`
 	Name      string      `json:"name"`
 	Bank      string      `json:"bank,omitempty"`
 	Type      AccountType `json:"type"`

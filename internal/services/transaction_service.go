@@ -9,12 +9,19 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sunriseex/finance-manager/internal/models"
+	"github.com/sunriseex/finance-manager/internal/repository"
 )
 
-type TransactionService struct{}
+type TransactionService struct {
+	repo repository.TransactionRepository
+}
 
-func NewTransactionService() *TransactionService {
-	return &TransactionService{}
+func NewTransactionService(repos ...repository.TransactionRepository) *TransactionService {
+	var repo repository.TransactionRepository
+	if len(repos) > 0 {
+		repo = repos[0]
+	}
+	return &TransactionService{repo: repo}
 }
 
 type CreateTransactionRequest struct {
@@ -28,6 +35,40 @@ type CreateTransactionRequest struct {
 }
 
 func (s *TransactionService) Create(ctx context.Context, req *CreateTransactionRequest) (*models.Transaction, error) {
+	transaction, err := buildTransaction(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.repo != nil {
+		if err := s.repo.Create(ctx, transaction); err != nil {
+			return nil, fmt.Errorf("save transaction: %w", err)
+		}
+	}
+
+	return transaction, nil
+}
+
+func (s *TransactionService) CreateMany(ctx context.Context, reqs ...*CreateTransactionRequest) ([]models.Transaction, error) {
+	transactions := make([]models.Transaction, 0, len(reqs))
+	for _, req := range reqs {
+		transaction, err := buildTransaction(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		transactions = append(transactions, *transaction)
+	}
+
+	if s.repo != nil {
+		if err := s.repo.CreateMany(ctx, transactions); err != nil {
+			return nil, fmt.Errorf("save transactions: %w", err)
+		}
+	}
+
+	return transactions, nil
+}
+
+func buildTransaction(ctx context.Context, req *CreateTransactionRequest) (*models.Transaction, error) {
 	select {
 	case <-ctx.Done():
 		return nil, fmt.Errorf("create transaction: %w", ctx.Err())
@@ -55,7 +96,7 @@ func (s *TransactionService) Create(ctx context.Context, req *CreateTransactionR
 		occurredAt = time.Now()
 	}
 
-	return &models.Transaction{
+	transaction := &models.Transaction{
 		ID:               uuid.NewString(),
 		AccountID:        strings.TrimSpace(req.AccountID),
 		RelatedAccountID: req.RelatedAccountID,
@@ -65,7 +106,9 @@ func (s *TransactionService) Create(ctx context.Context, req *CreateTransactionR
 		Description:      strings.TrimSpace(req.Description),
 		OccurredAt:       occurredAt,
 		CreatedAt:        time.Now(),
-	}, nil
+	}
+
+	return transaction, nil
 }
 
 func validTransactionType(transactionType models.TransactionType) bool {

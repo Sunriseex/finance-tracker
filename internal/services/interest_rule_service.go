@@ -10,17 +10,38 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/sunriseex/finance-manager/internal/models"
+	"github.com/sunriseex/finance-manager/internal/repository"
 )
 
 type InterestRuleService struct {
 	transactions *TransactionService
+	rules        repository.InterestRuleRepository
+	accruals     repository.InterestAccrualRepository
 }
 
-func NewInterestRuleService(transactions *TransactionService) *InterestRuleService {
+type InterestRuleServiceOption func(*InterestRuleService)
+
+func WithInterestRuleRepository(repo repository.InterestRuleRepository) InterestRuleServiceOption {
+	return func(s *InterestRuleService) {
+		s.rules = repo
+	}
+}
+
+func WithInterestAccrualRepository(repo repository.InterestAccrualRepository) InterestRuleServiceOption {
+	return func(s *InterestRuleService) {
+		s.accruals = repo
+	}
+}
+
+func NewInterestRuleService(transactions *TransactionService, options ...InterestRuleServiceOption) *InterestRuleService {
 	if transactions == nil {
 		transactions = NewTransactionService()
 	}
-	return &InterestRuleService{transactions: transactions}
+	service := &InterestRuleService{transactions: transactions}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 type CreateInterestRuleRequest struct {
@@ -122,7 +143,7 @@ func (s *InterestRuleService) Create(ctx context.Context, req *CreateInterestRul
 		promoEndDate = &normalized
 	}
 
-	return &models.InterestRule{
+	rule := &models.InterestRule{
 		ID:                      uuid.NewString(),
 		AccountID:               accountID,
 		AnnualRateBps:           req.AnnualRateBps,
@@ -134,7 +155,15 @@ func (s *InterestRuleService) Create(ctx context.Context, req *CreateInterestRul
 		IsActive:                true,
 		StartDate:               startDate,
 		EndDate:                 endDate,
-	}, nil
+	}
+
+	if s.rules != nil {
+		if err := s.rules.Create(ctx, rule); err != nil {
+			return nil, fmt.Errorf("save interest rule: %w", err)
+		}
+	}
+
+	return rule, nil
 }
 
 func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInterestRequest) (*AccrueRuleInterestResponse, error) {
@@ -178,7 +207,7 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 		return nil, fmt.Errorf("calculated interest is zero")
 	}
 
-	tx, err := s.transactions.Create(ctx, &CreateTransactionRequest{
+	tx, err := buildTransaction(ctx, &CreateTransactionRequest{
 		AccountID:   req.Rule.AccountID,
 		Type:        models.TransactionTypeInterestIncome,
 		AmountMinor: amountMinor,
@@ -186,7 +215,7 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 		OccurredAt:  accrualDate,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create interest income transaction: %w", err)
+		return nil, fmt.Errorf("build interest income transaction: %w", err)
 	}
 
 	accrual := &models.InterestAccrual{
@@ -199,6 +228,16 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 		BalanceMinor:  req.BalanceMinor,
 		AnnualRateBps: effectiveRateBps(&req.Rule, accrualDate),
 		CreatedAt:     time.Now(),
+	}
+
+	if s.accruals != nil {
+		if err := s.accruals.CreateWithTransaction(ctx, tx, accrual); err != nil {
+			return nil, fmt.Errorf("save interest accrual with transaction: %w", err)
+		}
+	} else if s.transactions.repo != nil {
+		if err := s.transactions.repo.Create(ctx, tx); err != nil {
+			return nil, fmt.Errorf("save interest transaction: %w", err)
+		}
 	}
 
 	return &AccrueRuleInterestResponse{Transaction: tx, Accrual: accrual}, nil

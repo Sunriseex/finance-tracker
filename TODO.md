@@ -271,15 +271,15 @@ UNIQUE(account_id, accrual_date, rule_id)
 
 ## Репозитории
 
-* [ ] `AccountRepository`
-* [ ] `TransactionRepository`
-* [ ] `CategoryRepository`
-* [ ] `InterestRuleRepository`
-* [ ] `InterestAccrualRepository`
+* [x] `AccountRepository`
+* [x] `TransactionRepository`
+* [x] `CategoryRepository`
+* [x] `InterestRuleRepository`
+* [x] `InterestAccrualRepository`
 
 ## Миграция старых JSON-данных
 
-* [ ] Написать команду:
+* [x] Написать команду:
 
 ```bash
 finance-manager migrate-json
@@ -287,12 +287,12 @@ finance-manager migrate-json
 
 Она должна:
 
-* [ ] прочитать текущие вклады из JSON
-* [ ] создать `accounts`
-* [ ] создать `interest_rules`
-* [ ] создать `initial_balance` транзакции
-* [ ] сохранить старые ID как `legacy_id`
-* [ ] сформировать отчет миграции
+* [x] прочитать текущие вклады из JSON
+* [x] создать `accounts`
+* [x] создать `interest_rules`
+* [x] создать `initial_balance` транзакции
+* [x] сохранить старые ID как `legacy_id`
+* [x] сформировать отчет миграции
 
 ## Acceptance Criteria
 
