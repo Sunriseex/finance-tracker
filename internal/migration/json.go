@@ -330,15 +330,6 @@ func dateOnly(date time.Time) time.Time {
 	return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-func firstNonZeroDate(values ...time.Time) time.Time {
-	for _, value := range values {
-		if !value.IsZero() {
-			return dateOnly(value)
-		}
-	}
-	return time.Time{}
-}
-
 func firstNonZeroTime(values ...time.Time) time.Time {
 	for _, value := range values {
 		if !value.IsZero() {
