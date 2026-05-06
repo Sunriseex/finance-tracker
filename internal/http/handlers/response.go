@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/sunriseex/finance-manager/internal/http/dto"
@@ -39,5 +40,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 func decodeJSON(r *http.Request, dst any) error {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	return decoder.Decode(dst)
+	if err := decoder.Decode(dst); err != nil {
+		return fmt.Errorf("decode json body: %w", err)
+	}
+	return nil
 }

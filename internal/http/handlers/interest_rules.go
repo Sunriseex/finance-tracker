@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -209,18 +210,31 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ruleForAccrual(r *http.Request, accountID, ruleID string) (*models.InterestRule, error) {
-	if strings.TrimSpace(ruleID) != "" {
-		return h.store.InterestRules().GetByID(r.Context(), strings.TrimSpace(ruleID))
+	ruleID = strings.TrimSpace(ruleID)
+	if ruleID != "" {
+		rule, err := h.store.InterestRules().GetByID(r.Context(), ruleID)
+		if err != nil {
+			return nil, fmt.Errorf("get interest rule: %w", err)
+		}
+
+		if rule.AccountID != accountID {
+			return nil, repository.ErrNotFound
+		}
+
+		return rule, nil
 	}
+
 	rules, err := h.store.InterestRules().ListByAccount(r.Context(), accountID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list account interest rules: %w", err)
 	}
+
 	for i := range rules {
 		if rules[i].IsActive {
 			return &rules[i], nil
 		}
 	}
+
 	return nil, repository.ErrNotFound
 }
 

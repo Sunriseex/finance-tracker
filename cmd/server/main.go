@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/sunriseex/finance-manager/internal/config"
@@ -15,6 +17,16 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("server failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	if err := config.Init(); err != nil {
 		slog.Error("config init failed", "error", err)
 		os.Exit(1)
@@ -23,9 +35,6 @@ func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	databaseURL := flag.String("database-url", config.AppConfig.DatabaseURL, "PostgreSQL connection URL")
 	flag.Parse()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 
 	pool, err := postgres.OpenPool(ctx, *databaseURL)
 	if err != nil {
@@ -51,4 +60,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	return nil
 }

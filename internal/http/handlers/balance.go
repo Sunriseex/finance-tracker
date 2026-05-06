@@ -10,6 +10,12 @@ import (
 
 func (h *Handler) getAccountBalance(w http.ResponseWriter, r *http.Request) {
 	accountID := chi.URLParam(r, "id")
+
+	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
 	transactions, err := h.store.Transactions().ListByAccount(r.Context(), accountID)
 	if err != nil {
 		writeServiceError(w, err)
