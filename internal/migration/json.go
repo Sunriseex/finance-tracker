@@ -18,14 +18,27 @@ type JSONMigrator struct {
 	accounts     repository.AccountRepository
 	transactions repository.TransactionRepository
 	rules        repository.InterestRuleRepository
+	migration    repository.DepositMigrationRepository
 }
 
-func NewJSONMigrator(accounts repository.AccountRepository, transactions repository.TransactionRepository, rules repository.InterestRuleRepository) *JSONMigrator {
-	return &JSONMigrator{
+type Option func(*JSONMigrator)
+
+func WithDepositMigrationRepository(repo repository.DepositMigrationRepository) Option {
+	return func(m *JSONMigrator) {
+		m.migration = repo
+	}
+}
+
+func NewJSONMigrator(accounts repository.AccountRepository, transactions repository.TransactionRepository, rules repository.InterestRuleRepository, options ...Option) *JSONMigrator {
+	migrator := &JSONMigrator{
 		accounts:     accounts,
 		transactions: transactions,
 		rules:        rules,
 	}
+	for _, option := range options {
+		option(migrator)
+	}
+	return migrator
 }
 
 type JSONMigrationReport struct {
@@ -101,20 +114,11 @@ func (m *JSONMigrator) migrateDeposit(ctx context.Context, deposit *models.Depos
 	if account.Name == "" {
 		return 0, fmt.Errorf("deposit name is required")
 	}
-	if err := m.accounts.Create(ctx, account); err != nil {
-		return 0, fmt.Errorf("create account: %w", err)
-	}
-	report.CreatedAccounts++
 
 	rule, err := interestRuleForDeposit(deposit, account.ID, openedAt)
 	if err != nil {
 		return 0, err
 	}
-	if err := m.rules.Create(ctx, rule); err != nil {
-		return 0, fmt.Errorf("create interest rule: %w", err)
-	}
-	report.CreatedInterestRules++
-
 	transaction := &models.Transaction{
 		ID:          uuid.NewString(),
 		AccountID:   account.ID,
@@ -124,9 +128,24 @@ func (m *JSONMigrator) migrateDeposit(ctx context.Context, deposit *models.Depos
 		OccurredAt:  openedAt,
 		CreatedAt:   now,
 	}
-	if err := m.transactions.Create(ctx, transaction); err != nil {
-		return 0, fmt.Errorf("create initial balance transaction: %w", err)
+
+	if m.migration != nil {
+		if err := m.migration.CreateMigratedDeposit(ctx, account, rule, transaction); err != nil {
+			return 0, fmt.Errorf("create migrated deposit: %w", err)
+		}
+	} else {
+		if err := m.accounts.Create(ctx, account); err != nil {
+			return 0, fmt.Errorf("create account: %w", err)
+		}
+		if err := m.rules.Create(ctx, rule); err != nil {
+			return 0, fmt.Errorf("create interest rule: %w", err)
+		}
+		if err := m.transactions.Create(ctx, transaction); err != nil {
+			return 0, fmt.Errorf("create initial balance transaction: %w", err)
+		}
 	}
+	report.CreatedAccounts++
+	report.CreatedInterestRules++
 	report.CreatedTransactions++
 
 	return deposit.Amount, nil
@@ -134,6 +153,7 @@ func (m *JSONMigrator) migrateDeposit(ctx context.Context, deposit *models.Depos
 
 func (m *JSONMigrator) migrateExistingDeposit(ctx context.Context, deposit *models.Deposit, account *models.Account, report *JSONMigrationReport) (int64, error) {
 	report.SkippedExisting++
+	legacyID := strings.TrimSpace(deposit.ID)
 
 	rules, err := m.rules.ListByAccount(ctx, account.ID)
 	if err != nil {
@@ -155,14 +175,14 @@ func (m *JSONMigrator) migrateExistingDeposit(ctx context.Context, deposit *mode
 	if err != nil {
 		return 0, fmt.Errorf("list existing transactions: %w", err)
 	}
-	if !hasLegacyInitialTransaction(transactions, deposit.ID) {
+	if !hasLegacyInitialTransaction(transactions, legacyID) {
 		now := time.Now().UTC()
 		transaction := &models.Transaction{
 			ID:          uuid.NewString(),
 			AccountID:   account.ID,
 			Type:        models.TransactionTypeInitialBalance,
 			AmountMinor: deposit.Amount,
-			Description: legacyInitialDescription(deposit.ID),
+			Description: legacyInitialDescription(legacyID),
 			OccurredAt:  firstNonZeroDate(parseDate(deposit.StartDate), account.OpenedAt, now),
 			CreatedAt:   now,
 		}

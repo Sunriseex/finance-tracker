@@ -15,7 +15,12 @@ func TestJSONMigratorMigrateDeposits(t *testing.T) {
 	accounts := newFakeAccountRepo()
 	transactions := newFakeTransactionRepo()
 	rules := newFakeInterestRuleRepo()
-	migrator := NewJSONMigrator(accounts, transactions, rules)
+	migrationRepo := &fakeDepositMigrationRepo{
+		accounts:     accounts,
+		transactions: transactions,
+		rules:        rules,
+	}
+	migrator := NewJSONMigrator(accounts, transactions, rules, WithDepositMigrationRepository(migrationRepo))
 
 	promoRate := 17.5
 	report, err := migrator.MigrateDeposits(ctx, []models.Deposit{
@@ -43,6 +48,9 @@ func TestJSONMigratorMigrateDeposits(t *testing.T) {
 	}
 	if report.CreatedAccounts != 1 || report.CreatedInterestRules != 1 || report.CreatedTransactions != 1 {
 		t.Fatalf("created counts = accounts %d rules %d tx %d", report.CreatedAccounts, report.CreatedInterestRules, report.CreatedTransactions)
+	}
+	if migrationRepo.calls != 1 {
+		t.Fatalf("migration repo calls = %d, want 1", migrationRepo.calls)
 	}
 
 	account := accounts.byLegacy["legacy-1"]
@@ -149,6 +157,94 @@ func TestJSONMigratorRepairsPartialLegacyMigration(t *testing.T) {
 	if !report.BalanceMatchesSource {
 		t.Fatal("balance must match source after repair")
 	}
+}
+
+func TestJSONMigratorUsesTrimmedLegacyIDForExistingInitialBalance(t *testing.T) {
+	ctx := t.Context()
+	accounts := newFakeAccountRepo()
+	transactions := newFakeTransactionRepo()
+	rules := newFakeInterestRuleRepo()
+	migrator := NewJSONMigrator(accounts, transactions, rules)
+
+	legacyID := "legacy-1"
+	legacyIDPtr := legacyID
+	account := &models.Account{
+		ID:       "account-1",
+		LegacyID: &legacyIDPtr,
+		Name:     "Savings",
+		Type:     models.AccountTypeSavings,
+		Currency: "RUB",
+		OpenedAt: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := accounts.Create(ctx, account); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	if err := rules.Create(ctx, &models.InterestRule{
+		ID:                 "rule-1",
+		AccountID:          account.ID,
+		AnnualRateBps:      1_200,
+		AccrualFrequency:   models.AccrualFrequencyDaily,
+		DayCountConvention: models.DayCountConventionActual365,
+		IsActive:           true,
+		StartDate:          account.OpenedAt,
+	}); err != nil {
+		t.Fatalf("seed rule: %v", err)
+	}
+	if err := transactions.Create(ctx, &models.Transaction{
+		ID:          "tx-1",
+		AccountID:   account.ID,
+		Type:        models.TransactionTypeInitialBalance,
+		AmountMinor: 100_000,
+		Description: legacyInitialDescription(legacyID),
+		OccurredAt:  account.OpenedAt,
+		CreatedAt:   account.OpenedAt,
+	}); err != nil {
+		t.Fatalf("seed transaction: %v", err)
+	}
+
+	report, err := migrator.MigrateDeposits(ctx, []models.Deposit{{
+		ID:             "  legacy-1  ",
+		Name:           "Savings",
+		Type:           models.DepositTypeSavings,
+		Amount:         100_000,
+		InterestRate:   12,
+		StartDate:      "2026-05-01",
+		Capitalization: models.CapitalizationDaily,
+	}})
+	if err != nil {
+		t.Fatalf("migrate deposits: %v", err)
+	}
+	if report.CreatedTransactions != 0 {
+		t.Fatalf("created transactions = %d, want 0", report.CreatedTransactions)
+	}
+	if !report.BalanceMatchesSource {
+		t.Fatal("balance must match source")
+	}
+}
+
+type fakeDepositMigrationRepo struct {
+	accounts     *fakeAccountRepo
+	transactions *fakeTransactionRepo
+	rules        *fakeInterestRuleRepo
+	calls        int
+	fail         error
+}
+
+func (r *fakeDepositMigrationRepo) CreateMigratedDeposit(ctx context.Context, account *models.Account, rule *models.InterestRule, transaction *models.Transaction) error {
+	r.calls++
+	if r.fail != nil {
+		return r.fail
+	}
+	if err := r.accounts.Create(ctx, account); err != nil {
+		return err
+	}
+	if err := r.rules.Create(ctx, rule); err != nil {
+		return err
+	}
+	if err := r.transactions.Create(ctx, transaction); err != nil {
+		return err
+	}
+	return nil
 }
 
 type fakeAccountRepo struct {

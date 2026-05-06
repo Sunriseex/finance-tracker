@@ -15,6 +15,10 @@ type AccountRepository interface {
 	Archive(ctx context.Context, id string) error
 }
 
+type DepositMigrationRepository interface {
+	CreateMigratedDeposit(ctx context.Context, account *models.Account, rule *models.InterestRule, transaction *models.Transaction) error
+}
+
 type TransactionRepository interface {
 	Create(ctx context.Context, transaction *models.Transaction) error
 	CreateMany(ctx context.Context, transactions []models.Transaction) error
@@ -40,6 +44,7 @@ type InterestRuleRepository interface {
 
 type InterestAccrualRepository interface {
 	Create(ctx context.Context, accrual *models.InterestAccrual) error
-	GetByAccountDateRule(ctx context.Context, accountID string, accrualDate string, ruleID string) (*models.InterestAccrual, error)
+	CreateWithTransaction(ctx context.Context, transaction *models.Transaction, accrual *models.InterestAccrual) error
+	GetByAccountDateRule(ctx context.Context, accountID, accrualDate, ruleID string) (*models.InterestAccrual, error)
 	ListByAccount(ctx context.Context, accountID string) ([]models.InterestAccrual, error)
 }

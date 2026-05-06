@@ -18,12 +18,29 @@ func NewInterestAccrualRepository(pool *pgxpool.Pool) *InterestAccrualRepository
 }
 
 func (r *InterestAccrualRepository) Create(ctx context.Context, accrual *models.InterestAccrual) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO interest_accruals (id, account_id, rule_id, transaction_id, accrual_date, amount_minor, balance_minor, annual_rate_bps, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, accrual.ID, accrual.AccountID, accrual.RuleID, accrual.TransactionID, accrual.AccrualDate, accrual.AmountMinor, accrual.BalanceMinor, accrual.AnnualRateBps, accrual.CreatedAt)
-	if err != nil {
+	if err := insertInterestAccrual(ctx, r.pool, accrual); err != nil {
 		return fmt.Errorf("create interest accrual: %w", err)
+	}
+	return nil
+}
+
+func (r *InterestAccrualRepository) CreateWithTransaction(ctx context.Context, transaction *models.Transaction, accrual *models.InterestAccrual) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin interest accrual transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if err := insertTransaction(ctx, tx, transaction); err != nil {
+		return fmt.Errorf("create interest transaction: %w", err)
+	}
+	if err := insertInterestAccrual(ctx, tx, accrual); err != nil {
+		return fmt.Errorf("create interest accrual: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit interest accrual transaction: %w", err)
 	}
 	return nil
 }
@@ -82,4 +99,15 @@ func scanInterestAccrual(row interestAccrualScanner) (*models.InterestAccrual, e
 		return nil, fmt.Errorf("scan interest accrual: %w", mapNotFound(err))
 	}
 	return &accrual, nil
+}
+
+func insertInterestAccrual(ctx context.Context, execer sqlExecer, accrual *models.InterestAccrual) error {
+	_, err := execer.Exec(ctx, `
+		INSERT INTO interest_accruals (id, account_id, rule_id, transaction_id, accrual_date, amount_minor, balance_minor, annual_rate_bps, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, accrual.ID, accrual.AccountID, accrual.RuleID, accrual.TransactionID, accrual.AccrualDate, accrual.AmountMinor, accrual.BalanceMinor, accrual.AnnualRateBps, accrual.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("insert interest accrual: %w", err)
+	}
+	return nil
 }

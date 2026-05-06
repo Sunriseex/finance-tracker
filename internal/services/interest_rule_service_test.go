@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -155,6 +156,51 @@ func TestInterestRuleServiceAccrue(t *testing.T) {
 	}
 }
 
+func TestInterestRuleServiceAccruePersistsTransactionAndAccrualAtomically(t *testing.T) {
+	accruals := &recordingInterestAccrualRepo{}
+	transactions := &recordingTransactionRepo{}
+	service := NewInterestRuleService(
+		NewTransactionService(transactions),
+		WithInterestAccrualRepository(accruals),
+	)
+	rule := models.InterestRule{
+		ID:                 "rule-1",
+		AccountID:          "account-1",
+		AnnualRateBps:      1_200,
+		AccrualFrequency:   models.AccrualFrequencyDaily,
+		DayCountConvention: models.DayCountConventionActual365,
+		IsActive:           true,
+		StartDate:          time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	got, err := service.Accrue(t.Context(), &AccrueRuleInterestRequest{
+		Rule:         rule,
+		BalanceMinor: 100_000_00,
+		AccrualDate:  time.Date(2026, 5, 4, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("accrue interest: %v", err)
+	}
+	if got.Transaction == nil || got.Accrual == nil {
+		t.Fatal("transaction and accrual must be returned")
+	}
+	if transactions.createCalls != 0 {
+		t.Fatalf("transaction repo create calls = %d, want 0", transactions.createCalls)
+	}
+	if accruals.createCalls != 0 {
+		t.Fatalf("accrual repo create calls = %d, want 0", accruals.createCalls)
+	}
+	if accruals.createWithTransactionCalls != 1 {
+		t.Fatalf("atomic create calls = %d, want 1", accruals.createWithTransactionCalls)
+	}
+	if accruals.transaction == nil || accruals.accrual == nil {
+		t.Fatal("atomic create must receive transaction and accrual")
+	}
+	if accruals.transaction.ID != got.Transaction.ID {
+		t.Fatalf("atomic transaction id = %s, want %s", accruals.transaction.ID, got.Transaction.ID)
+	}
+}
+
 func TestInterestRuleServiceAccrueUsesPromoRate(t *testing.T) {
 	promoRate := int64(2_400)
 	promoEndDate := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
@@ -262,4 +308,60 @@ func TestInterestRuleServiceAccrueRejectsUnsupportedCapitalization(t *testing.T)
 	if err == nil {
 		t.Fatal("expected error")
 	}
+}
+
+type recordingInterestAccrualRepo struct {
+	createCalls                int
+	createWithTransactionCalls int
+	transaction                *models.Transaction
+	accrual                    *models.InterestAccrual
+}
+
+func (r *recordingInterestAccrualRepo) Create(context.Context, *models.InterestAccrual) error {
+	r.createCalls++
+	return nil
+}
+
+func (r *recordingInterestAccrualRepo) CreateWithTransaction(_ context.Context, transaction *models.Transaction, accrual *models.InterestAccrual) error {
+	r.createWithTransactionCalls++
+	r.transaction = transaction
+	r.accrual = accrual
+	return nil
+}
+
+func (r *recordingInterestAccrualRepo) GetByAccountDateRule(context.Context, string, string, string) (*models.InterestAccrual, error) {
+	return nil, errNotImplemented
+}
+
+func (r *recordingInterestAccrualRepo) ListByAccount(context.Context, string) ([]models.InterestAccrual, error) {
+	return nil, nil
+}
+
+type recordingTransactionRepo struct {
+	createCalls int
+}
+
+func (r *recordingTransactionRepo) Create(context.Context, *models.Transaction) error {
+	r.createCalls++
+	return nil
+}
+
+func (r *recordingTransactionRepo) CreateMany(context.Context, []models.Transaction) error {
+	return nil
+}
+
+func (r *recordingTransactionRepo) GetByID(context.Context, string) (*models.Transaction, error) {
+	return nil, errNotImplemented
+}
+
+func (r *recordingTransactionRepo) List(context.Context) ([]models.Transaction, error) {
+	return nil, nil
+}
+
+func (r *recordingTransactionRepo) ListByAccount(context.Context, string) ([]models.Transaction, error) {
+	return nil, nil
+}
+
+func (r *recordingTransactionRepo) Delete(context.Context, string) error {
+	return nil
 }

@@ -19,11 +19,7 @@ func NewAccountRepository(pool *pgxpool.Pool) *AccountRepository {
 }
 
 func (r *AccountRepository) Create(ctx context.Context, account *models.Account) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO accounts (id, legacy_id, name, bank, type, currency, is_active, opened_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, account.ID, account.LegacyID, account.Name, account.Bank, account.Type, account.Currency, account.IsActive, account.OpenedAt, account.CreatedAt, account.UpdatedAt)
-	if err != nil {
+	if err := insertAccount(ctx, r.pool, account); err != nil {
 		return fmt.Errorf("create account: %w", err)
 	}
 	return nil
@@ -102,4 +98,15 @@ func scanAccount(row accountScanner) (*models.Account, error) {
 		return nil, fmt.Errorf("scan account: %w", mapNotFound(err))
 	}
 	return &account, nil
+}
+
+func insertAccount(ctx context.Context, execer sqlExecer, account *models.Account) error {
+	_, err := execer.Exec(ctx, `
+		INSERT INTO accounts (id, legacy_id, name, bank, type, currency, is_active, opened_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, account.ID, account.LegacyID, account.Name, account.Bank, account.Type, account.Currency, account.IsActive, account.OpenedAt, account.CreatedAt, account.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("insert account: %w", err)
+	}
+	return nil
 }

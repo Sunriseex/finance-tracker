@@ -19,15 +19,7 @@ func NewInterestRuleRepository(pool *pgxpool.Pool) *InterestRuleRepository {
 }
 
 func (r *InterestRuleRepository) Create(ctx context.Context, rule *models.InterestRule) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO interest_rules (
-			id, account_id, annual_rate_bps, promo_rate_bps, promo_end_date,
-			accrual_frequency, capitalization_frequency, day_count_convention,
-			is_active, start_date, end_date
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-	`, rule.ID, rule.AccountID, rule.AnnualRateBps, rule.PromoRateBps, rule.PromoEndDate, rule.AccrualFrequency, rule.CapitalizationFrequency, rule.DayCountConvention, rule.IsActive, rule.StartDate, rule.EndDate)
-	if err != nil {
+	if err := insertInterestRule(ctx, r.pool, rule); err != nil {
 		return fmt.Errorf("create interest rule: %w", err)
 	}
 	return nil
@@ -108,4 +100,19 @@ func scanInterestRule(row interestRuleScanner) (*models.InterestRule, error) {
 		return nil, fmt.Errorf("scan interest rule: %w", mapNotFound(err))
 	}
 	return &rule, nil
+}
+
+func insertInterestRule(ctx context.Context, execer sqlExecer, rule *models.InterestRule) error {
+	_, err := execer.Exec(ctx, `
+		INSERT INTO interest_rules (
+			id, account_id, annual_rate_bps, promo_rate_bps, promo_end_date,
+			accrual_frequency, capitalization_frequency, day_count_convention,
+			is_active, start_date, end_date
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, rule.ID, rule.AccountID, rule.AnnualRateBps, rule.PromoRateBps, rule.PromoEndDate, rule.AccrualFrequency, rule.CapitalizationFrequency, rule.DayCountConvention, rule.IsActive, rule.StartDate, rule.EndDate)
+	if err != nil {
+		return fmt.Errorf("insert interest rule: %w", err)
+	}
+	return nil
 }

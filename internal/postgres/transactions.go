@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sunriseex/finance-manager/internal/models"
@@ -129,11 +128,7 @@ func scanTransaction(row transactionScanner) (*models.Transaction, error) {
 	return &transaction, nil
 }
 
-type transactionExecer interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-}
-
-func insertTransaction(ctx context.Context, execer transactionExecer, transaction *models.Transaction) error {
+func insertTransaction(ctx context.Context, execer sqlExecer, transaction *models.Transaction) error {
 	_, err := execer.Exec(ctx, `
 		INSERT INTO transactions (id, account_id, related_account_id, type, amount_minor, category_id, description, occurred_at, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)

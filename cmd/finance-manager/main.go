@@ -69,7 +69,12 @@ func runMigrateJSON(ctx context.Context, args []string) error {
 	defer pool.Close()
 
 	store := postgres.NewStore(pool)
-	migrator := migration.NewJSONMigrator(store.Accounts(), store.Transactions(), store.InterestRules())
+	migrator := migration.NewJSONMigrator(
+		store.Accounts(),
+		store.Transactions(),
+		store.InterestRules(),
+		migration.WithDepositMigrationRepository(store),
+	)
 	report, err := migrator.MigrateDeposits(ctx, deposits.Deposits)
 	if err != nil {
 		return err

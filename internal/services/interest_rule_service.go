@@ -207,7 +207,7 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 		return nil, fmt.Errorf("calculated interest is zero")
 	}
 
-	tx, err := s.transactions.Create(ctx, &CreateTransactionRequest{
+	tx, err := buildTransaction(ctx, &CreateTransactionRequest{
 		AccountID:   req.Rule.AccountID,
 		Type:        models.TransactionTypeInterestIncome,
 		AmountMinor: amountMinor,
@@ -215,7 +215,7 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 		OccurredAt:  accrualDate,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create interest income transaction: %w", err)
+		return nil, fmt.Errorf("build interest income transaction: %w", err)
 	}
 
 	accrual := &models.InterestAccrual{
@@ -231,8 +231,12 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 	}
 
 	if s.accruals != nil {
-		if err := s.accruals.Create(ctx, accrual); err != nil {
-			return nil, fmt.Errorf("save interest accrual: %w", err)
+		if err := s.accruals.CreateWithTransaction(ctx, tx, accrual); err != nil {
+			return nil, fmt.Errorf("save interest accrual with transaction: %w", err)
+		}
+	} else if s.transactions.repo != nil {
+		if err := s.transactions.repo.Create(ctx, tx); err != nil {
+			return nil, fmt.Errorf("save interest transaction: %w", err)
 		}
 	}
 
