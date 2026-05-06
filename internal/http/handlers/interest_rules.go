@@ -216,6 +216,10 @@ func (h *Handler) ruleForAccrual(r *http.Request, accountID, ruleID string) (*mo
 			return nil, fmt.Errorf("get interest rule: %w", err)
 		}
 
+		if err := ensureRuleBelongsToAccount(rule, accountID); err != nil {
+			return nil, err
+		}
+
 		if rule.AccountID != accountID {
 			return nil, repository.ErrNotFound
 		}
@@ -340,4 +344,11 @@ func dateOnly(date time.Time) time.Time {
 		return time.Time{}
 	}
 	return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func ensureRuleBelongsToAccount(rule *models.InterestRule, accountID string) error {
+	if rule.AccountID != accountID {
+		return repository.ErrNotFound
+	}
+	return nil
 }
