@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/sunriseex/finance-manager/internal/http/dto"
 	"github.com/sunriseex/finance-manager/internal/models"
 	"github.com/sunriseex/finance-manager/internal/repository"
@@ -15,8 +13,10 @@ import (
 )
 
 func (h *Handler) listInterestRules(w http.ResponseWriter, r *http.Request) {
-	accountID := chi.URLParam(r, "id")
-
+	accountID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
 	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
 		writeServiceError(w, err)
 		return
@@ -54,7 +54,10 @@ func (h *Handler) createInterestRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountID := chi.URLParam(r, "id")
+	accountID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
 	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
 		writeServiceError(w, err)
 		return
@@ -84,7 +87,12 @@ func (h *Handler) createInterestRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateInterestRule(w http.ResponseWriter, r *http.Request) {
-	rule, err := h.store.InterestRules().GetByID(r.Context(), chi.URLParam(r, "id"))
+	ruleID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	rule, err := h.store.InterestRules().GetByID(r.Context(), ruleID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -170,7 +178,10 @@ func (h *Handler) updateInterestRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
-	accountID := chi.URLParam(r, "id")
+	accountID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
 	var req dto.AccrueInterestRequest
 
 	if err := decodeOptionalJSON(r, &req); err != nil {

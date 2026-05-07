@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/sunriseex/finance-manager/internal/http/dto"
 	"github.com/sunriseex/finance-manager/internal/models"
 	"github.com/sunriseex/finance-manager/internal/services"
@@ -48,6 +46,10 @@ func (h *Handler) createTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accountID := strings.TrimSpace(req.AccountID)
+	if !validateOptionalUUID(w, accountID, "account_id") {
+		return
+	}
+
 	if accountID != "" {
 		if !h.ensureAccountExists(w, r, accountID) {
 			return
@@ -67,20 +69,30 @@ func (h *Handler) createTransaction(w http.ResponseWriter, r *http.Request) {
 		writeValidationOrServiceError(w, err)
 		return
 	}
+
 	writeJSON(w, http.StatusCreated, dto.TransactionFromModel(transaction))
 }
 
 func (h *Handler) getTransaction(w http.ResponseWriter, r *http.Request) {
-	transaction, err := h.store.Transactions().GetByID(r.Context(), chi.URLParam(r, "id"))
+	transactionID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	transaction, err := h.store.Transactions().GetByID(r.Context(), transactionID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
+
 	writeJSON(w, http.StatusOK, dto.TransactionFromModel(transaction))
 }
 
 func (h *Handler) deleteTransaction(w http.ResponseWriter, r *http.Request) {
-	transactionID := chi.URLParam(r, "id")
+	transactionID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
 
 	transaction, err := h.store.Transactions().GetByID(r.Context(), transactionID)
 	if err != nil {

@@ -5,8 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/sunriseex/finance-manager/internal/http/dto"
 	"github.com/sunriseex/finance-manager/internal/models"
 	"github.com/sunriseex/finance-manager/internal/services"
@@ -49,7 +47,12 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
-	account, err := h.store.Accounts().GetByID(r.Context(), chi.URLParam(r, "id"))
+	accountID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	account, err := h.store.Accounts().GetByID(r.Context(), accountID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -58,7 +61,12 @@ func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
-	account, err := h.store.Accounts().GetByID(r.Context(), chi.URLParam(r, "id"))
+	accountID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	account, err := h.store.Accounts().GetByID(r.Context(), accountID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -110,7 +118,12 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) archiveAccount(w http.ResponseWriter, r *http.Request) {
-	if err := h.store.Accounts().Archive(r.Context(), chi.URLParam(r, "id")); err != nil {
+	accountID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	if err := h.store.Accounts().Archive(r.Context(), accountID); err != nil {
 		writeServiceError(w, err)
 		return
 	}
