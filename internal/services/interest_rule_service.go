@@ -76,24 +76,24 @@ func (s *InterestRuleService) Create(ctx context.Context, req *CreateInterestRul
 	default:
 	}
 	if req == nil {
-		return nil, fmt.Errorf("create interest rule request is required")
+		return nil, validationError("create interest rule request is required")
 	}
 
 	accountID := strings.TrimSpace(req.AccountID)
 	if accountID == "" {
-		return nil, fmt.Errorf("account id is required")
+		return nil, validationError("account id is required")
 	}
 	if req.AnnualRateBps <= 0 {
-		return nil, fmt.Errorf("annual rate must be positive")
+		return nil, validationError("annual rate must be positive")
 	}
 	if req.PromoRateBps != nil && *req.PromoRateBps <= 0 {
-		return nil, fmt.Errorf("promo rate must be positive")
+		return nil, validationError("promo rate must be positive")
 	}
 	if req.PromoRateBps != nil && req.PromoEndDate == nil {
-		return nil, fmt.Errorf("promo end date is required when promo rate is set")
+		return nil, validationError("promo end date is required when promo rate is set")
 	}
 	if req.PromoRateBps == nil && req.PromoEndDate != nil {
-		return nil, fmt.Errorf("promo rate is required when promo end date is set")
+		return nil, validationError("promo rate is required when promo end date is set")
 	}
 
 	accrualFrequency := req.AccrualFrequency
@@ -101,7 +101,7 @@ func (s *InterestRuleService) Create(ctx context.Context, req *CreateInterestRul
 		accrualFrequency = models.AccrualFrequencyDaily
 	}
 	if !validAccrualFrequency(accrualFrequency) {
-		return nil, fmt.Errorf("invalid accrual frequency: %s", accrualFrequency)
+		return nil, validationError(fmt.Sprintf("invalid accrual frequency: %s", accrualFrequency))
 	}
 
 	capitalizationFrequency := req.CapitalizationFrequency
@@ -109,7 +109,7 @@ func (s *InterestRuleService) Create(ctx context.Context, req *CreateInterestRul
 		capitalizationFrequency = models.CapitalizationFrequencyNone
 	}
 	if !validCapitalizationFrequency(capitalizationFrequency) {
-		return nil, fmt.Errorf("invalid capitalization frequency: %s", capitalizationFrequency)
+		return nil, validationError(fmt.Sprintf("invalid capitalization frequency: %s", capitalizationFrequency))
 	}
 
 	dayCountConvention := req.DayCountConvention
@@ -117,7 +117,7 @@ func (s *InterestRuleService) Create(ctx context.Context, req *CreateInterestRul
 		dayCountConvention = models.DayCountConventionActual365
 	}
 	if !validDayCountConvention(dayCountConvention) {
-		return nil, fmt.Errorf("invalid day count convention: %s", dayCountConvention)
+		return nil, validationError(fmt.Sprintf("invalid day count convention: %s", dayCountConvention))
 	}
 
 	startDate := dateOnly(req.StartDate)
@@ -125,10 +125,10 @@ func (s *InterestRuleService) Create(ctx context.Context, req *CreateInterestRul
 		startDate = dateOnly(time.Now())
 	}
 	if req.EndDate != nil && dateOnly(*req.EndDate).Before(startDate) {
-		return nil, fmt.Errorf("end date must be on or after start date")
+		return nil, validationError("end date must be on or after start date")
 	}
 	if req.PromoEndDate != nil && dateOnly(*req.PromoEndDate).Before(startDate) {
-		return nil, fmt.Errorf("promo end date must be on or after start date")
+		return nil, validationError("promo end date must be on or after start date")
 	}
 
 	var endDate *time.Time
