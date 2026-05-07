@@ -15,11 +15,19 @@ import (
 )
 
 func (h *Handler) listInterestRules(w http.ResponseWriter, r *http.Request) {
-	rules, err := h.store.InterestRules().ListByAccount(r.Context(), chi.URLParam(r, "id"))
+	accountID := chi.URLParam(r, "id")
+
+	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	rules, err := h.store.InterestRules().ListByAccount(r.Context(), accountID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
+
 	writeJSON(w, http.StatusOK, dto.InterestRulesFromModels(rules))
 }
 
