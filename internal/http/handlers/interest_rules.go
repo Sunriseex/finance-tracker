@@ -219,7 +219,7 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 		ExistingAccruals: accruals,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		writeValidationOrServiceError(w, err)
 		return
 	}
 	if result.Skipped {

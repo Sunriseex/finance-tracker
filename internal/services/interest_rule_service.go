@@ -172,39 +172,50 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 		return nil, fmt.Errorf("accrue interest: %w", ctx.Err())
 	default:
 	}
+
 	if req == nil {
-		return nil, fmt.Errorf("accrue interest request is required")
+		return nil, validationError("accrue interest request is required")
 	}
 
 	if err := validateRuleForAccrual(&req.Rule); err != nil {
 		return nil, err
-	}
-	if req.BalanceMinor <= 0 {
-		return nil, fmt.Errorf("balance must be positive")
 	}
 
 	accrualDate := dateOnly(req.AccrualDate)
 	if accrualDate.IsZero() {
 		accrualDate = dateOnly(time.Now())
 	}
+
 	if !ruleActiveOn(&req.Rule, accrualDate) {
-		return nil, fmt.Errorf("interest rule is not active on %s", accrualDate.Format(time.DateOnly))
+		return nil, validationError(fmt.Sprintf("interest rule is not active on %s", accrualDate.Format(time.DateOnly)))
 	}
+
 	if req.Rule.AccrualFrequency != models.AccrualFrequencyDaily {
-		return nil, fmt.Errorf("unsupported accrual frequency for manual accrual: %s", req.Rule.AccrualFrequency)
+		return nil, validationError(fmt.Sprintf("unsupported accrual frequency for manual accrual: %s", req.Rule.AccrualFrequency))
 	}
+
 	if req.Rule.CapitalizationFrequency != models.CapitalizationFrequencyDaily &&
 		req.Rule.CapitalizationFrequency != models.CapitalizationFrequencyNone &&
 		req.Rule.CapitalizationFrequency != "" {
-		return nil, fmt.Errorf("unsupported capitalization frequency: %s", req.Rule.CapitalizationFrequency)
+		return nil, validationError(fmt.Sprintf("unsupported capitalization frequency: %s", req.Rule.CapitalizationFrequency))
 	}
+
 	if hasInterestAccrual(req.ExistingAccruals, &req.Rule, accrualDate) {
 		return &AccrueRuleInterestResponse{Skipped: true}, nil
 	}
 
-	amountMinor := calculateDailyInterestMinor(req.BalanceMinor, effectiveRateBps(&req.Rule, accrualDate), req.Rule.DayCountConvention, accrualDate)
+	if req.BalanceMinor <= 0 {
+		return nil, validationError("balance must be positive")
+	}
+
+	amountMinor := calculateDailyInterestMinor(
+		req.BalanceMinor,
+		effectiveRateBps(&req.Rule, accrualDate),
+		req.Rule.DayCountConvention,
+		accrualDate,
+	)
 	if amountMinor <= 0 {
-		return nil, fmt.Errorf("calculated interest is zero")
+		return nil, validationError("calculated interest is zero")
 	}
 
 	tx, err := buildTransaction(ctx, &CreateTransactionRequest{
@@ -240,27 +251,30 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 		}
 	}
 
-	return &AccrueRuleInterestResponse{Transaction: tx, Accrual: accrual}, nil
+	return &AccrueRuleInterestResponse{
+		Transaction: tx,
+		Accrual:     accrual,
+	}, nil
 }
 
 func validateRuleForAccrual(rule *models.InterestRule) error {
 	if strings.TrimSpace(rule.ID) == "" {
-		return fmt.Errorf("interest rule id is required")
+		return validationError("interest rule id is required")
 	}
 	if strings.TrimSpace(rule.AccountID) == "" {
-		return fmt.Errorf("account id is required")
+		return validationError("account id is required")
 	}
 	if !rule.IsActive {
-		return fmt.Errorf("interest rule is inactive")
+		return validationError("interest rule is inactive")
 	}
 	if rule.AnnualRateBps <= 0 {
-		return fmt.Errorf("annual rate must be positive")
+		return validationError("annual rate must be positive")
 	}
 	if !validAccrualFrequency(rule.AccrualFrequency) {
-		return fmt.Errorf("invalid accrual frequency: %s", rule.AccrualFrequency)
+		return validationError(fmt.Sprintf("invalid accrual frequency: %s", rule.AccrualFrequency))
 	}
 	if !validDayCountConvention(rule.DayCountConvention) {
-		return fmt.Errorf("invalid day count convention: %s", rule.DayCountConvention)
+		return validationError(fmt.Sprintf("invalid day count convention: %s", rule.DayCountConvention))
 	}
 	return nil
 }

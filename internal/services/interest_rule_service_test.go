@@ -474,6 +474,79 @@ func TestInterestRuleServiceCreateReturnsValidationError(t *testing.T) {
 	}
 }
 
+func TestInterestRuleServiceAccrueReturnsValidationError(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *AccrueRuleInterestRequest
+	}{
+		{"nil request", nil},
+		{
+			name: "missing rule id",
+			req: &AccrueRuleInterestRequest{
+				Rule: models.InterestRule{
+					AccountID:               "account-1",
+					IsActive:                true,
+					AnnualRateBps:           1200,
+					AccrualFrequency:        models.AccrualFrequencyDaily,
+					CapitalizationFrequency: models.CapitalizationFrequencyNone,
+					DayCountConvention:      models.DayCountConventionActual365,
+					StartDate:               time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+				},
+				BalanceMinor: 100_000,
+				AccrualDate:  time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			name: "non-positive balance",
+			req: &AccrueRuleInterestRequest{
+				Rule:         validAccrualTestRule(),
+				BalanceMinor: 0,
+				AccrualDate:  time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			name: "rule inactive",
+			req: &AccrueRuleInterestRequest{
+				Rule: func() models.InterestRule {
+					rule := validAccrualTestRule()
+					rule.IsActive = false
+					return rule
+				}(),
+				BalanceMinor: 100_000,
+				AccrualDate:  time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewInterestRuleService(NewTransactionService())
+
+			_, err := service.Accrue(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+
+			if !IsValidationError(err) {
+				t.Fatalf("expected validation error, got %T: %v", err, err)
+			}
+		})
+	}
+}
+
+func validAccrualTestRule() models.InterestRule {
+	return models.InterestRule{
+		ID:                      "rule-1",
+		AccountID:               "account-1",
+		IsActive:                true,
+		AnnualRateBps:           1200,
+		AccrualFrequency:        models.AccrualFrequencyDaily,
+		CapitalizationFrequency: models.CapitalizationFrequencyNone,
+		DayCountConvention:      models.DayCountConventionActual365,
+		StartDate:               time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+}
+
 func ptrInt64(value int64) *int64 {
 	return &value
 }

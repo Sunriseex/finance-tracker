@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sunriseex/finance-manager/internal/models"
@@ -45,5 +46,32 @@ func TestAccountServiceCreateValidatesCurrency(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestAccountServiceCreateReturnsValidationError(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *CreateAccountRequest
+	}{
+		{"nil request", nil},
+		{"missing name", &CreateAccountRequest{Type: models.AccountTypeSavings, Currency: "RUB"}},
+		{"invalid type", &CreateAccountRequest{Name: "Main", Type: models.AccountType("invalid"), Currency: "RUB"}},
+		{"invalid currency", &CreateAccountRequest{Name: "Main", Type: models.AccountTypeSavings, Currency: "12$"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewAccountService()
+
+			_, err := service.Create(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+
+			if !IsValidationError(err) {
+				t.Fatalf("expected validation error, got %T: %v", err, err)
+			}
+		})
 	}
 }
