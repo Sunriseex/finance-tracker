@@ -9,6 +9,7 @@ import (
 
 	"github.com/sunriseex/finance-manager/internal/http/dto"
 	"github.com/sunriseex/finance-manager/internal/repository"
+	"github.com/sunriseex/finance-manager/internal/services"
 )
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -69,4 +70,13 @@ func decodeOptionalJSON(r *http.Request, dst any) error {
 	}
 
 	return fmt.Errorf("decode optional json body: %w", err)
+}
+
+func writeValidationOrServiceError(w http.ResponseWriter, err error) {
+	if services.IsValidationError(err) {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+
+	writeServiceError(w, err)
 }

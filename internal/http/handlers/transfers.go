@@ -23,7 +23,7 @@ func (h *Handler) createTransfer(w http.ResponseWriter, r *http.Request) {
 		Description:   req.Description,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		writeValidationOrServiceError(w, err)
 		return
 	}
 

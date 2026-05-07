@@ -53,7 +53,7 @@ func (h *Handler) createTransaction(w http.ResponseWriter, r *http.Request) {
 		OccurredAt:       occurredAt,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		writeValidationOrServiceError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, dto.TransactionFromModel(transaction))
@@ -69,9 +69,34 @@ func (h *Handler) getTransaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteTransaction(w http.ResponseWriter, r *http.Request) {
-	if err := h.store.Transactions().Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+	transactionID := chi.URLParam(r, "id")
+
+	transaction, err := h.store.Transactions().GetByID(r.Context(), transactionID)
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
+
+	if isTransferTransaction(transaction.Type) {
+		writeError(
+			w,
+			http.StatusConflict,
+			"transfer_transaction_delete_forbidden",
+			"Transfer transactions cannot be deleted through the transaction endpoint",
+			nil,
+		)
+		return
+	}
+
+	if err := h.store.Transactions().Delete(r.Context(), transactionID); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func isTransferTransaction(transactionType models.TransactionType) bool {
+	return transactionType == models.TransactionTypeTransferIn ||
+		transactionType == models.TransactionTypeTransferOut
 }

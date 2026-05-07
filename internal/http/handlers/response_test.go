@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/sunriseex/finance-manager/internal/http/dto"
+	"github.com/sunriseex/finance-manager/internal/services"
 )
 
 func TestDecodeOptionalJSONAllowsEmptyBody(t *testing.T) {
@@ -110,5 +113,43 @@ func TestDecodeJSONRejectsUnknownFields(t *testing.T) {
 
 	if err := decodeJSON(req, &body); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestWriteValidationOrServiceErrorWritesValidationError(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	writeValidationOrServiceError(rec, services.ValidationError("amount must be non-zero"))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var body dto.ErrorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if body.Error.Code != "validation_error" {
+		t.Fatalf("code = %q, want validation_error", body.Error.Code)
+	}
+}
+
+func TestWriteValidationOrServiceErrorWritesInternalErrorForRegularError(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	writeValidationOrServiceError(rec, errors.New("database failed"))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+
+	var body dto.ErrorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if body.Error.Code != "internal_error" {
+		t.Fatalf("code = %q, want internal_error", body.Error.Code)
 	}
 }
