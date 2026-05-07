@@ -265,6 +265,11 @@ func runTransactionsCreate(ctx context.Context, args []string) error {
 		return err
 	}
 
+	parsedType := models.TransactionType(strings.TrimSpace(*transactionType))
+	if isTransferTransactionType(parsedType) {
+		return fmt.Errorf("transfer transactions must be created through transfer command")
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
 
@@ -277,7 +282,7 @@ func runTransactionsCreate(ctx context.Context, args []string) error {
 	service := services.NewTransactionService(store.Transactions())
 	transaction, err := service.Create(ctx, &services.CreateTransactionRequest{
 		AccountID:   *accountID,
-		Type:        models.TransactionType(strings.TrimSpace(*transactionType)),
+		Type:        parsedType,
 		AmountMinor: amountMinor,
 		Description: *description,
 		OccurredAt:  occurredAt,
@@ -419,4 +424,9 @@ Commands:
   finance-manager migrate-json [--deposits path] [--database-url url]
   finance-manager version
   finance-manager help`)
+}
+
+func isTransferTransactionType(transactionType models.TransactionType) bool {
+	return transactionType == models.TransactionTypeTransferIn ||
+		transactionType == models.TransactionTypeTransferOut
 }

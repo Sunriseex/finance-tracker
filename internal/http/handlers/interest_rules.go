@@ -46,13 +46,19 @@ func (h *Handler) createInterestRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accountID := chi.URLParam(r, "id")
+	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
 	service := services.NewInterestRuleService(
 		services.NewTransactionService(h.store.Transactions()),
 		services.WithInterestRuleRepository(h.store.InterestRules()),
 		services.WithInterestAccrualRepository(h.store.InterestAccruals()),
 	)
 	rule, err := service.Create(r.Context(), &services.CreateInterestRuleRequest{
-		AccountID:               chi.URLParam(r, "id"),
+		AccountID:               accountID,
 		AnnualRateBps:           req.AnnualRateBps,
 		PromoRateBps:            req.PromoRateBps,
 		PromoEndDate:            promoEndDate,
@@ -63,7 +69,7 @@ func (h *Handler) createInterestRule(w http.ResponseWriter, r *http.Request) {
 		EndDate:                 endDate,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		writeValidationOrServiceError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, dto.InterestRuleFromModel(rule))
