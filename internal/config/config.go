@@ -33,7 +33,7 @@ func Init() error {
 
 	envPaths := []string{
 		filepath.Join(home, "nixos", "scripts", "finance-manager", "configs", ".env"),
-		".env",
+		"./configs/.env",
 	}
 
 	var loaded bool
