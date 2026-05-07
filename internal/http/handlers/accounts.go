@@ -157,3 +157,12 @@ func validCurrency(currency string) bool {
 
 	return true
 }
+
+func (h *Handler) ensureAccountExists(w http.ResponseWriter, r *http.Request, accountID string) bool {
+	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
+		writeServiceError(w, err)
+		return false
+	}
+
+	return true
+}

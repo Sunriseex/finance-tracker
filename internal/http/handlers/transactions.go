@@ -47,8 +47,15 @@ func (h *Handler) createTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accountID := strings.TrimSpace(req.AccountID)
+	if accountID != "" {
+		if !h.ensureAccountExists(w, r, accountID) {
+			return
+		}
+	}
+
 	transaction, err := services.NewTransactionService(h.store.Transactions()).Create(r.Context(), &services.CreateTransactionRequest{
-		AccountID:        req.AccountID,
+		AccountID:        accountID,
 		RelatedAccountID: req.RelatedAccountID,
 		Type:             req.Type,
 		AmountMinor:      req.AmountMinor,
