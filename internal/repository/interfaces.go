@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/sunriseex/finance-manager/internal/models"
 )
@@ -45,6 +46,7 @@ type InterestRuleRepository interface {
 type InterestAccrualRepository interface {
 	Create(ctx context.Context, accrual *models.InterestAccrual) error
 	CreateWithTransaction(ctx context.Context, transaction *models.Transaction, accrual *models.InterestAccrual) error
+	ReplaceRangeWithTransactions(ctx context.Context, accountID, ruleID string, fromDate, toDate time.Time, transactions []models.Transaction, accruals []models.InterestAccrual) (int64, error)
 	GetByAccountDateRule(ctx context.Context, accountID, accrualDate, ruleID string) (*models.InterestAccrual, error)
 	ListByAccount(ctx context.Context, accountID string) ([]models.InterestAccrual, error)
 }

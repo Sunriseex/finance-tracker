@@ -46,6 +46,12 @@ func NewRouter(store *postgres.Store, apiAuthToken string) http.Handler {
 		r.Post("/accounts/{id}/interest-rules", h.createInterestRule)
 		r.Patch("/interest-rules/{id}", h.updateInterestRule)
 		r.Post("/accounts/{id}/accrue-interest", h.accrueInterest)
+		r.Post("/accounts/{id}/recalculate-interest", h.recalculateInterest)
+
+		r.Get("/dashboard/summary", h.getDashboardSummary)
+		r.Get("/dashboard/net-worth", h.getDashboardNetWorth)
+		r.Get("/dashboard/cashflow", h.getDashboardCashflow)
+		r.Get("/dashboard/interest-income", h.getDashboardInterestIncome)
 	})
 
 	return r

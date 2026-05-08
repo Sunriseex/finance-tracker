@@ -1,9 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/sunriseex/finance-manager/internal/models"
 )
@@ -104,6 +108,56 @@ func TestRejectDirectTransferTransaction(t *testing.T) {
 
 			if tt.wantRejected && rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestRecalculateInterestRejectsInvalidRequestBeforeStoreAccess(t *testing.T) {
+	tests := []struct {
+		name      string
+		accountID string
+		body      string
+	}{
+		{
+			name:      "invalid account id",
+			accountID: "not-a-uuid",
+			body:      `{}`,
+		},
+		{
+			name:      "invalid body",
+			accountID: "11111111-1111-1111-1111-111111111111",
+			body:      `{`,
+		},
+		{
+			name:      "invalid rule id",
+			accountID: "11111111-1111-1111-1111-111111111111",
+			body:      `{"rule_id":"not-a-uuid"}`,
+		},
+		{
+			name:      "invalid date",
+			accountID: "11111111-1111-1111-1111-111111111111",
+			body:      `{"from_date":"2026-13-01"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(
+				t.Context(),
+				http.MethodPost,
+				"/api/accounts/"+tt.accountID+"/recalculate-interest",
+				strings.NewReader(tt.body),
+			)
+			routeContext := chi.NewRouteContext()
+			routeContext.URLParams.Add("id", tt.accountID)
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeContext))
+			rec := httptest.NewRecorder()
+
+			new(Handler).recalculateInterest(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 			}
 		})
 	}

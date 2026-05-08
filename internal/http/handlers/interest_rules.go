@@ -211,17 +211,22 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accruals, err := h.store.InterestAccruals().ListByAccount(r.Context(), accountID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
 	transactions = transactionsUpToDate(transactions, accrualDate)
+	if rule.CapitalizationFrequency == models.CapitalizationFrequencyNone ||
+		rule.CapitalizationFrequency == "" {
+		transactions = excludeRuleAccrualTransactions(transactions, accruals, rule)
+	}
 
 	balance, err := services.NewBalanceService().Calculate(r.Context(), services.CalculateBalanceRequest{
 		AccountID:    accountID,
 		Transactions: transactions,
 	})
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	accruals, err := h.store.InterestAccruals().ListByAccount(r.Context(), accountID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -249,6 +254,91 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 		"skipped":     false,
 		"transaction": dto.TransactionFromModel(result.Transaction),
 		"accrual":     result.Accrual,
+	})
+}
+
+func (h *Handler) recalculateInterest(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := routeUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+
+	var req dto.RecalculateInterestRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body", nil)
+		return
+	}
+	if !validateOptionalUUID(w, req.RuleID, "rule_id") {
+		return
+	}
+
+	fromDate, err := parseOptionalDate(req.FromDate)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	toDate, err := parseOptionalDate(req.ToDate)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+		return
+	}
+	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	ruleDate := toDate
+	if ruleDate.IsZero() {
+		ruleDate = dateOnly(time.Now())
+	}
+
+	rule, err := h.ruleForRecalculation(r, accountID, req.RuleID, ruleDate)
+	if err != nil {
+		if _, ok := err.(validationError); ok {
+			writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
+			return
+		}
+
+		writeServiceError(w, err)
+		return
+	}
+
+	transactions, err := h.store.Transactions().ListByAccount(r.Context(), accountID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	accruals, err := h.store.InterestAccruals().ListByAccount(r.Context(), accountID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	service := services.NewInterestRuleService(
+		services.NewTransactionService(h.store.Transactions()),
+		services.WithInterestAccrualRepository(h.store.InterestAccruals()),
+	)
+	result, err := service.Recalculate(r.Context(), &services.RecalculateRuleInterestRequest{
+		Rule:             *rule,
+		Transactions:     transactions,
+		ExistingAccruals: accruals,
+		FromDate:         fromDate,
+		ToDate:           toDate,
+	})
+	if err != nil {
+		writeValidationOrServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.RecalculateInterestResponse{
+		AccountID:        result.AccountID,
+		RuleID:           result.RuleID,
+		FromDate:         result.FromDate,
+		ToDate:           result.ToDate,
+		DeletedAccruals:  result.DeletedAccruals,
+		CreatedAccruals:  result.CreatedAccruals,
+		SkippedDays:      result.SkippedDays,
+		TotalAmountMinor: result.TotalAmountMinor,
 	})
 }
 
@@ -281,6 +371,38 @@ func (h *Handler) ruleForAccrual(r *http.Request, accountID, ruleID string, accr
 	}
 
 	rule := latestApplicableInterestRule(rules, accrualDate)
+	if rule == nil {
+		return nil, repository.ErrNotFound
+	}
+
+	return rule, nil
+}
+
+func (h *Handler) ruleForRecalculation(r *http.Request, accountID, ruleID string, fallbackDate time.Time) (*models.InterestRule, error) {
+	ruleID = strings.TrimSpace(ruleID)
+	if ruleID != "" {
+		if !isValidUUID(ruleID) {
+			return nil, errValidation("invalid rule_id")
+		}
+
+		rule, err := h.store.InterestRules().GetByID(r.Context(), ruleID)
+		if err != nil {
+			return nil, fmt.Errorf("get interest rule: %w", err)
+		}
+
+		if err := ensureRuleBelongsToAccount(rule, accountID); err != nil {
+			return nil, err
+		}
+
+		return rule, nil
+	}
+
+	rules, err := h.store.InterestRules().ListByAccount(r.Context(), accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list account interest rules: %w", err)
+	}
+
+	rule := latestApplicableInterestRule(rules, fallbackDate)
 	if rule == nil {
 		return nil, repository.ErrNotFound
 	}
@@ -445,6 +567,32 @@ func transactionsUpToDate(transactions []models.Transaction, accrualDate time.Ti
 		if !dateOnly(transactions[i].OccurredAt).After(date) {
 			filtered = append(filtered, transactions[i])
 		}
+	}
+
+	return filtered
+}
+
+func excludeRuleAccrualTransactions(
+	transactions []models.Transaction,
+	accruals []models.InterestAccrual,
+	rule *models.InterestRule,
+) []models.Transaction {
+	excludedTransactionIDs := make(map[string]struct{})
+
+	for i := range accruals {
+		accrual := &accruals[i]
+		if accrual.AccountID == rule.AccountID && accrual.RuleID == rule.ID {
+			excludedTransactionIDs[accrual.TransactionID] = struct{}{}
+		}
+	}
+
+	filtered := make([]models.Transaction, 0, len(transactions))
+	for i := range transactions {
+		if _, ok := excludedTransactionIDs[transactions[i].ID]; ok {
+			continue
+		}
+
+		filtered = append(filtered, transactions[i])
 	}
 
 	return filtered
