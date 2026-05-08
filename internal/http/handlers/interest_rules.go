@@ -289,9 +289,6 @@ func (h *Handler) recalculateInterest(w http.ResponseWriter, r *http.Request) {
 
 	ruleDate := toDate
 	if ruleDate.IsZero() {
-		ruleDate = fromDate
-	}
-	if ruleDate.IsZero() {
 		ruleDate = dateOnly(time.Now())
 	}
 
