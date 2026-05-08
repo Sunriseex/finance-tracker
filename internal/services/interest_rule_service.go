@@ -289,7 +289,7 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	if req == nil {
 		return nil, validationError("recalculate interest request is required")
 	}
-	if err := validateRuleForAccrual(&req.Rule); err != nil {
+	if err := validateRuleForRecalculation(&req.Rule); err != nil {
 		return nil, err
 	}
 	if req.Rule.AccrualFrequency != models.AccrualFrequencyDaily {
@@ -587,4 +587,23 @@ func validDayCountConvention(convention models.DayCountConvention) bool {
 	default:
 		return false
 	}
+}
+
+func validateRuleForRecalculation(rule *models.InterestRule) error {
+	if strings.TrimSpace(rule.ID) == "" {
+		return validationError("interest rule id is required")
+	}
+	if strings.TrimSpace(rule.AccountID) == "" {
+		return validationError("account id is required")
+	}
+	if rule.AnnualRateBps <= 0 {
+		return validationError("annual rate must be positive")
+	}
+	if !validAccrualFrequency(rule.AccrualFrequency) {
+		return validationError(fmt.Sprintf("invalid accrual frequency: %s", rule.AccrualFrequency))
+	}
+	if !validDayCountConvention(rule.DayCountConvention) {
+		return validationError(fmt.Sprintf("invalid day count convention: %s", rule.DayCountConvention))
+	}
+	return nil
 }
