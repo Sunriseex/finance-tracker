@@ -676,6 +676,56 @@ func TestInterestRuleServiceAccrueReturnsValidationError(t *testing.T) {
 	}
 }
 
+func TestInterestRuleServiceRecalculateDoesNotUsePriorAccrualsWhenCapitalizationNone(t *testing.T) {
+	rule := validAccrualTestRule()
+	rule.CapitalizationFrequency = models.CapitalizationFrequencyNone
+
+	got, err := NewInterestRuleService(nil).Recalculate(t.Context(), &RecalculateRuleInterestRequest{
+		Rule: rule,
+		Transactions: []models.Transaction{
+			{
+				ID:          "initial",
+				AccountID:   rule.AccountID,
+				Type:        models.TransactionTypeInitialBalance,
+				AmountMinor: 100_000_00,
+				OccurredAt:  time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			},
+			{
+				ID:          "prior-interest",
+				AccountID:   rule.AccountID,
+				Type:        models.TransactionTypeInterestIncome,
+				AmountMinor: 3_288,
+				OccurredAt:  time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		ExistingAccruals: []models.InterestAccrual{
+			{
+				AccountID:     rule.AccountID,
+				RuleID:        rule.ID,
+				TransactionID: "prior-interest",
+				AccrualDate:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		FromDate: time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+		ToDate:   time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("recalculate interest: %v", err)
+	}
+
+	if got.CreatedAccruals != 1 {
+		t.Fatalf("created accruals = %d, want 1", got.CreatedAccruals)
+	}
+
+	if len(got.Transactions) != 1 {
+		t.Fatalf("transactions len = %d, want 1", len(got.Transactions))
+	}
+
+	if got.Transactions[0].AmountMinor != 3_288 {
+		t.Fatalf("amount = %d, want 3288 without prior interest compounding", got.Transactions[0].AmountMinor)
+	}
+}
+
 func TestInterestRuleServiceRecalculateCompoundsWhenCapitalizationDaily(t *testing.T) {
 	rule := validAccrualTestRule()
 	rule.CapitalizationFrequency = models.CapitalizationFrequencyDaily

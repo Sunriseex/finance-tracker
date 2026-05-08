@@ -320,6 +320,11 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	}
 
 	workingTransactions := excludeAccrualTransactions(req.Transactions, req.ExistingAccruals, &req.Rule, fromDate, toDate)
+
+	if req.Rule.CapitalizationFrequency == models.CapitalizationFrequencyNone ||
+		req.Rule.CapitalizationFrequency == "" {
+		workingTransactions = excludeAllRuleAccrualTransactions(workingTransactions, req.ExistingAccruals, &req.Rule)
+	}
 	response := &RecalculateRuleInterestResponse{
 		AccountID: req.Rule.AccountID,
 		RuleID:    req.Rule.ID,
@@ -400,6 +405,32 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	}
 
 	return response, nil
+}
+
+func excludeAllRuleAccrualTransactions(
+	transactions []models.Transaction,
+	accruals []models.InterestAccrual,
+	rule *models.InterestRule,
+) []models.Transaction {
+	excludedTransactionIDs := make(map[string]struct{})
+
+	for i := range accruals {
+		accrual := &accruals[i]
+		if accrual.AccountID == rule.AccountID && accrual.RuleID == rule.ID {
+			excludedTransactionIDs[accrual.TransactionID] = struct{}{}
+		}
+	}
+
+	filtered := make([]models.Transaction, 0, len(transactions))
+	for i := range transactions {
+		if _, ok := excludedTransactionIDs[transactions[i].ID]; ok {
+			continue
+		}
+
+		filtered = append(filtered, transactions[i])
+	}
+
+	return filtered
 }
 
 func validateRuleForAccrual(rule *models.InterestRule) error {
