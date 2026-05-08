@@ -48,6 +48,23 @@ type AccrueInterestRequest struct {
 	Date   string `json:"date"`
 }
 
+type RecalculateInterestRequest struct {
+	RuleID   string `json:"rule_id"`
+	FromDate string `json:"from_date"`
+	ToDate   string `json:"to_date"`
+}
+
+type RecalculateInterestResponse struct {
+	AccountID        string    `json:"account_id"`
+	RuleID           string    `json:"rule_id"`
+	FromDate         time.Time `json:"from_date"`
+	ToDate           time.Time `json:"to_date"`
+	DeletedAccruals  int64     `json:"deleted_accruals"`
+	CreatedAccruals  int64     `json:"created_accruals"`
+	SkippedDays      int64     `json:"skipped_days"`
+	TotalAmountMinor int64     `json:"total_amount_minor"`
+}
+
 func InterestRuleFromModel(rule *models.InterestRule) InterestRuleResponse {
 	return InterestRuleResponse{
 		ID:                      rule.ID,
