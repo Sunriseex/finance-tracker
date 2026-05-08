@@ -290,7 +290,7 @@ func (h *Handler) recalculateInterest(w http.ResponseWriter, r *http.Request) {
 		ruleDate = dateOnly(time.Now())
 	}
 
-	rule, err := h.ruleForAccrual(r, accountID, req.RuleID, ruleDate)
+	rule, err := h.ruleForRecalculation(r, accountID, req.RuleID, ruleDate)
 	if err != nil {
 		if _, ok := err.(validationError); ok {
 			writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
@@ -369,6 +369,38 @@ func (h *Handler) ruleForAccrual(r *http.Request, accountID, ruleID string, accr
 	}
 
 	rule := latestApplicableInterestRule(rules, accrualDate)
+	if rule == nil {
+		return nil, repository.ErrNotFound
+	}
+
+	return rule, nil
+}
+
+func (h *Handler) ruleForRecalculation(r *http.Request, accountID, ruleID string, fallbackDate time.Time) (*models.InterestRule, error) {
+	ruleID = strings.TrimSpace(ruleID)
+	if ruleID != "" {
+		if !isValidUUID(ruleID) {
+			return nil, errValidation("invalid rule_id")
+		}
+
+		rule, err := h.store.InterestRules().GetByID(r.Context(), ruleID)
+		if err != nil {
+			return nil, fmt.Errorf("get interest rule: %w", err)
+		}
+
+		if err := ensureRuleBelongsToAccount(rule, accountID); err != nil {
+			return nil, err
+		}
+
+		return rule, nil
+	}
+
+	rules, err := h.store.InterestRules().ListByAccount(r.Context(), accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list account interest rules: %w", err)
+	}
+
+	rule := latestApplicableInterestRule(rules, fallbackDate)
 	if rule == nil {
 		return nil, repository.ErrNotFound
 	}
