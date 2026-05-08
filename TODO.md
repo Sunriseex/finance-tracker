@@ -364,14 +364,14 @@ internal/domain
 * [x] `POST /api/accounts/{id}/interest-rules`
 * [x] `PATCH /api/interest-rules/{id}`
 * [x] `POST /api/accounts/{id}/accrue-interest`
-* [ ] `POST /api/accounts/{id}/recalculate-interest`
+* [x] `POST /api/accounts/{id}/recalculate-interest`
 
 ### Dashboard
 
-* [ ] `GET /api/dashboard/summary`
-* [ ] `GET /api/dashboard/net-worth`
-* [ ] `GET /api/dashboard/cashflow`
-* [ ] `GET /api/dashboard/interest-income`
+* [x] `GET /api/dashboard/summary`
+* [x] `GET /api/dashboard/net-worth`
+* [x] `GET /api/dashboard/cashflow`
+* [x] `GET /api/dashboard/interest-income`
 
 Не делать до стабильного core:
 
