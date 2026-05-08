@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-.PHONY: help test lint check db-up db-down db-migrate db-rollback
+.PHONY: help test race lint check check-race db-up db-down db-migrate db-rollback
 
 help:
 	@echo "Targets:"
@@ -18,6 +18,11 @@ test:
 
 lint:
 	@golangci-lint run ./...
+
+race: 
+	@go test ./... -race
+
+check-race: test lint race
 
 check: test lint
 

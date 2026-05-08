@@ -19,6 +19,7 @@ type Config struct {
 	DataPath         string
 	DepositsDataPath string
 	DatabaseURL      string
+	APIAuthToken     string
 	LogLevel         slog.Level
 }
 
@@ -33,7 +34,6 @@ func Init() error {
 	envPaths := []string{
 		filepath.Join(home, "nixos", "scripts", "finance-manager", "configs", ".env"),
 		"./configs/.env",
-		".env",
 	}
 
 	var loaded bool
@@ -80,6 +80,7 @@ func Init() error {
 		DepositsDataPath: depositsDataPath,
 		DatabaseURL:      getEnv("DATABASE_URL", "postgres://finance_tracker:finance_tracker@localhost:5432/finance_tracker?sslmode=disable"),
 		LogLevel:         logLevel,
+		APIAuthToken:     getEnv("API_AUTH_TOKEN", ""),
 	}
 
 	initLogger(logLevel)

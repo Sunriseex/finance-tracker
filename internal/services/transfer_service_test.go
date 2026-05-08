@@ -103,3 +103,84 @@ func (r *batchTransactionRepo) Delete(context.Context, string) error {
 }
 
 var errNotImplemented = errors.New("not implemented")
+
+func TestTransferServiceCreateReturnsValidationError(t *testing.T) {
+	tests := []struct {
+		name string
+		req  CreateTransferRequest
+	}{
+		{
+			name: "missing from account id",
+			req: CreateTransferRequest{
+				ToAccountID: "account-2",
+				AmountMinor: 100,
+			},
+		},
+		{
+			name: "missing to account id",
+			req: CreateTransferRequest{
+				FromAccountID: "account-1",
+				AmountMinor:   100,
+			},
+		},
+		{
+			name: "same accounts",
+			req: CreateTransferRequest{
+				FromAccountID: "account-1",
+				ToAccountID:   "account-1",
+				AmountMinor:   100,
+			},
+		},
+		{
+			name: "zero amount",
+			req: CreateTransferRequest{
+				FromAccountID: "account-1",
+				ToAccountID:   "account-2",
+				AmountMinor:   0,
+			},
+		},
+		{
+			name: "negative amount",
+			req: CreateTransferRequest{
+				FromAccountID: "account-1",
+				ToAccountID:   "account-2",
+				AmountMinor:   -100,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewTransferService(NewTransactionService())
+
+			_, err := service.Create(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+
+			if !IsValidationError(err) {
+				t.Fatalf("expected validation error, got %T: %v", err, err)
+			}
+		})
+	}
+}
+
+func TestTransferServiceCreateDoesNotClassifyRepositoryErrorAsValidation(t *testing.T) {
+	repoErr := errors.New("database failed")
+	txService := NewTransactionService(failingTransactionRepo{err: repoErr})
+	service := NewTransferService(txService)
+
+	_, err := service.Create(context.Background(), CreateTransferRequest{
+		FromAccountID: "account-1",
+		ToAccountID:   "account-2",
+		AmountMinor:   100,
+	})
+
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if IsValidationError(err) {
+		t.Fatalf("expected repository/internal error, got validation error: %v", err)
+	}
+}

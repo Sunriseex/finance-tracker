@@ -39,15 +39,15 @@ func (s *AccountService) Create(ctx context.Context, req *CreateAccountRequest) 
 	default:
 	}
 	if req == nil {
-		return nil, fmt.Errorf("create account request is required")
+		return nil, validationError("create account request is required")
 	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, fmt.Errorf("account name is required")
+		return nil, validationError("account name is required")
 	}
 	if !validAccountType(req.Type) {
-		return nil, fmt.Errorf("invalid account type: %s", req.Type)
+		return nil, validationError(fmt.Sprintf("invalid account type: %s", req.Type))
 	}
 
 	currency := strings.TrimSpace(req.Currency)
@@ -56,7 +56,7 @@ func (s *AccountService) Create(ctx context.Context, req *CreateAccountRequest) 
 	}
 	currency = strings.ToUpper(currency)
 	if !validCurrency(currency) {
-		return nil, fmt.Errorf("invalid currency: %s", currency)
+		return nil, validationError(fmt.Sprintf("invalid currency: %s", currency))
 	}
 
 	openedAt := req.OpenedAt

@@ -79,16 +79,16 @@ func buildTransaction(ctx context.Context, req *CreateTransactionRequest) (*mode
 	}
 
 	if strings.TrimSpace(req.AccountID) == "" {
-		return nil, fmt.Errorf("account id is required")
+		return nil, validationError("account id is required")
 	}
 	if !validTransactionType(req.Type) {
-		return nil, fmt.Errorf("invalid transaction type: %s", req.Type)
+		return nil, validationError(fmt.Sprintf("invalid transaction type: %s", req.Type))
 	}
 	if req.AmountMinor == 0 {
-		return nil, fmt.Errorf("amount must be non-zero")
+		return nil, validationError("amount must be non-zero")
 	}
 	if req.Type != models.TransactionTypeAdjustment && req.AmountMinor < 0 {
-		return nil, fmt.Errorf("amount must be positive for %s transactions", req.Type)
+		return nil, validationError(fmt.Sprintf("amount must be positive for %s transactions", req.Type))
 	}
 
 	occurredAt := req.OccurredAt

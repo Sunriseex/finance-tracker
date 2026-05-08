@@ -365,3 +365,192 @@ func (r *recordingTransactionRepo) ListByAccount(context.Context, string) ([]mod
 func (r *recordingTransactionRepo) Delete(context.Context, string) error {
 	return nil
 }
+
+func TestInterestRuleServiceCreateReturnsValidationError(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *CreateInterestRuleRequest
+	}{
+		{
+			name: "nil request",
+			req:  nil,
+		},
+		{
+			name: "missing account id",
+			req: &CreateInterestRuleRequest{
+				AnnualRateBps: 1200,
+			},
+		},
+		{
+			name: "zero annual rate",
+			req: &CreateInterestRuleRequest{
+				AccountID:     "account-1",
+				AnnualRateBps: 0,
+			},
+		},
+		{
+			name: "negative promo rate",
+			req: &CreateInterestRuleRequest{
+				AccountID:     "account-1",
+				AnnualRateBps: 1200,
+				PromoRateBps:  ptrInt64(-100),
+				PromoEndDate:  ptrTime(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)),
+			},
+		},
+		{
+			name: "promo rate without promo end date",
+			req: &CreateInterestRuleRequest{
+				AccountID:     "account-1",
+				AnnualRateBps: 1200,
+				PromoRateBps:  ptrInt64(1500),
+			},
+		},
+		{
+			name: "promo end date without promo rate",
+			req: &CreateInterestRuleRequest{
+				AccountID:     "account-1",
+				AnnualRateBps: 1200,
+				PromoEndDate:  ptrTime(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)),
+			},
+		},
+		{
+			name: "invalid accrual frequency",
+			req: &CreateInterestRuleRequest{
+				AccountID:        "account-1",
+				AnnualRateBps:    1200,
+				AccrualFrequency: models.AccrualFrequency("weekly"),
+			},
+		},
+		{
+			name: "invalid capitalization frequency",
+			req: &CreateInterestRuleRequest{
+				AccountID:               "account-1",
+				AnnualRateBps:           1200,
+				CapitalizationFrequency: models.CapitalizationFrequency("yearly"),
+			},
+		},
+		{
+			name: "invalid day count convention",
+			req: &CreateInterestRuleRequest{
+				AccountID:          "account-1",
+				AnnualRateBps:      1200,
+				DayCountConvention: models.DayCountConvention("30_360"),
+			},
+		},
+		{
+			name: "end date before start date",
+			req: &CreateInterestRuleRequest{
+				AccountID:     "account-1",
+				AnnualRateBps: 1200,
+				StartDate:     time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC),
+				EndDate:       ptrTime(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)),
+			},
+		},
+		{
+			name: "promo end date before start date",
+			req: &CreateInterestRuleRequest{
+				AccountID:     "account-1",
+				AnnualRateBps: 1200,
+				PromoRateBps:  ptrInt64(1500),
+				StartDate:     time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC),
+				PromoEndDate:  ptrTime(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewInterestRuleService(nil)
+
+			_, err := service.Create(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+
+			if !IsValidationError(err) {
+				t.Fatalf("expected validation error, got %T: %v", err, err)
+			}
+		})
+	}
+}
+
+func TestInterestRuleServiceAccrueReturnsValidationError(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *AccrueRuleInterestRequest
+	}{
+		{"nil request", nil},
+		{
+			name: "missing rule id",
+			req: &AccrueRuleInterestRequest{
+				Rule: models.InterestRule{
+					AccountID:               "account-1",
+					IsActive:                true,
+					AnnualRateBps:           1200,
+					AccrualFrequency:        models.AccrualFrequencyDaily,
+					CapitalizationFrequency: models.CapitalizationFrequencyNone,
+					DayCountConvention:      models.DayCountConventionActual365,
+					StartDate:               time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+				},
+				BalanceMinor: 100_000,
+				AccrualDate:  time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			name: "non-positive balance",
+			req: &AccrueRuleInterestRequest{
+				Rule:         validAccrualTestRule(),
+				BalanceMinor: 0,
+				AccrualDate:  time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			name: "rule inactive",
+			req: &AccrueRuleInterestRequest{
+				Rule: func() models.InterestRule {
+					rule := validAccrualTestRule()
+					rule.IsActive = false
+					return rule
+				}(),
+				BalanceMinor: 100_000,
+				AccrualDate:  time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewInterestRuleService(NewTransactionService())
+
+			_, err := service.Accrue(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+
+			if !IsValidationError(err) {
+				t.Fatalf("expected validation error, got %T: %v", err, err)
+			}
+		})
+	}
+}
+
+func validAccrualTestRule() models.InterestRule {
+	return models.InterestRule{
+		ID:                      "rule-1",
+		AccountID:               "account-1",
+		IsActive:                true,
+		AnnualRateBps:           1200,
+		AccrualFrequency:        models.AccrualFrequencyDaily,
+		CapitalizationFrequency: models.CapitalizationFrequencyNone,
+		DayCountConvention:      models.DayCountConventionActual365,
+		StartDate:               time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+}
+
+func ptrInt64(value int64) *int64 {
+	return &value
+}
+
+func ptrTime(value time.Time) *time.Time {
+	return &value
+}
