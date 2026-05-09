@@ -53,8 +53,13 @@ func run() error {
 	}
 
 	server := &http.Server{
-		Addr:              *addr,
-		Handler:           handlers.NewRouter(store, config.AppConfig.APIAuthToken),
+		Addr: *addr,
+		Handler: handlers.NewRouter(store, handlers.RouterConfig{
+			APIAuthToken:       config.AppConfig.APIAuthToken,
+			CORSAllowedOrigins: config.AppConfig.CORSAllowedOrigins,
+			RateLimitRequests:  config.AppConfig.RateLimitRequests,
+			RateLimitWindow:    config.AppConfig.RateLimitWindow,
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

@@ -19,23 +19,23 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
-func (s *Store) Accounts() *AccountRepository {
+func (s *Store) Accounts() repository.AccountRepository {
 	return NewAccountRepository(s.pool)
 }
 
-func (s *Store) Transactions() *TransactionRepository {
+func (s *Store) Transactions() repository.TransactionRepository {
 	return NewTransactionRepository(s.pool)
 }
 
-func (s *Store) Categories() *CategoryRepository {
+func (s *Store) Categories() repository.CategoryRepository {
 	return NewCategoryRepository(s.pool)
 }
 
-func (s *Store) InterestRules() *InterestRuleRepository {
+func (s *Store) InterestRules() repository.InterestRuleRepository {
 	return NewInterestRuleRepository(s.pool)
 }
 
-func (s *Store) InterestAccruals() *InterestAccrualRepository {
+func (s *Store) InterestAccruals() repository.InterestAccrualRepository {
 	return NewInterestAccrualRepository(s.pool)
 }
 
