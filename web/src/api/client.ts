@@ -13,7 +13,8 @@ import type {
 
 const tokenKey = "finance_tracker_api_token";
 const apiBaseKey = "finance_tracker_api_base";
-const defaultApiBase = "http://localhost:8080/api";
+const legacyDefaultApiBase = "http://localhost:8080/api";
+const defaultApiBase = "/api";
 
 export function getStoredToken() {
   return localStorage.getItem(tokenKey) ?? "";
@@ -24,11 +25,16 @@ export function setStoredToken(token: string) {
 }
 
 export function getStoredApiBase() {
-  return localStorage.getItem(apiBaseKey) ?? defaultApiBase;
+  const stored = localStorage.getItem(apiBaseKey)?.replace(/\/$/, "");
+  if (!stored || stored === legacyDefaultApiBase) {
+    return defaultApiBase;
+  }
+  return stored;
 }
 
 export function setStoredApiBase(base: string) {
-  localStorage.setItem(apiBaseKey, base.trim().replace(/\/$/, ""));
+  const normalized = base.trim().replace(/\/$/, "");
+  localStorage.setItem(apiBaseKey, normalized || defaultApiBase);
 }
 
 export class ApiClientError extends Error {
