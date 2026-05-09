@@ -539,7 +539,7 @@ internal/domain
 * [x] Можно увидеть, из каких операций получился баланс.
 * [x] Можно увидеть начисленные проценты по счету.
 * [x] Нет smart budget, goals и LLM в первом WebUI MVP.
-* [ ] WebUI проходит CI job: `npm ci`, `npm run lint`, `npm run build`.
+* [x] WebUI проходит CI job: `npm ci`, `npm run lint`, `npm run build`.
 
 ---
 
