@@ -353,6 +353,14 @@ internal/domain
 * [x] `POST /api/transactions`
 * [x] `GET /api/transactions/{id}`
 * [x] `DELETE /api/transactions/{id}`
+* [ ] Добавить pagination для `GET /api/transactions` (`limit`, `cursor` или `page`).
+* [ ] Добавить server-side filtering для `GET /api/transactions`:
+
+  * [ ] счет
+  * [ ] категория
+  * [ ] тип операции
+  * [ ] период дат
+  * [ ] поиск по описанию
 
 ### Transfers
 
@@ -372,6 +380,12 @@ internal/domain
 * [x] `GET /api/dashboard/net-worth`
 * [x] `GET /api/dashboard/cashflow`
 * [x] `GET /api/dashboard/interest-income`
+
+### API Contract
+
+* [ ] Добавить OpenAPI spec для всех `/api/*` endpoints.
+* [ ] Описать DTO, ошибки, auth, pagination и filtering.
+* [ ] Добавить проверку OpenAPI spec в CI после стабилизации контракта.
 
 Не делать до стабильного core:
 
@@ -434,6 +448,25 @@ internal/domain
 Рекомендуемый выбор: `React + Vite + TypeScript`, потому что это лучше покажет full-stack развитие проекта.
 
 ## Страницы
+
+### Product UX
+
+* [ ] Добавить переключение светлой/темной темы.
+* [ ] Сделать современное premium-оформление для dashboard, таблиц, форм и empty states.
+* [ ] Сохранить выбранную тему в `localStorage`.
+* [ ] Проверить контраст, hover/focus states и mobile layout.
+
+### Frontend Architecture
+
+* [ ] Разбить `web/src/App.tsx` на feature-модули:
+
+  * [ ] `features/dashboard`
+  * [ ] `features/accounts`
+  * [ ] `features/transactions`
+  * [ ] `shared/ui`
+  * [ ] `shared/api`
+* [ ] Оставить `App.tsx` только для layout, routing/view state и composition.
+* [ ] Не менять поведение при рефакторинге без отдельной задачи.
 
 ### Dashboard
 
@@ -506,6 +539,60 @@ internal/domain
 * [x] Можно увидеть, из каких операций получился баланс.
 * [x] Можно увидеть начисленные проценты по счету.
 * [x] Нет smart budget, goals и LLM в первом WebUI MVP.
+* [ ] WebUI проходит CI job: `npm ci`, `npm run lint`, `npm run build`.
+
+---
+
+# v0.5.1 — Auth & Secure Local User
+
+## Цель
+
+Сделать вход пользователя в сам CapitalFlow, чтобы дальнейшая работа с данными шла через личную сессию, а не через общий Bearer token.
+
+## Security Requirements
+
+* [ ] Регистрация пользователя при первом заходе в сервис.
+* [ ] После первого пользователя закрыть публичную регистрацию или требовать admin invite/setup token.
+* [ ] Хешировать пароль через `argon2id`.
+* [ ] Не хранить plaintext password, reset tokens или JWT secrets в репозитории.
+* [ ] Использовать access JWT с коротким TTL.
+* [ ] Использовать refresh token с rotation и server-side revocation.
+* [ ] Хранить refresh token безопасно: httpOnly cookie или hashed token в БД.
+* [ ] Добавить logout с отзывом refresh token.
+* [ ] Добавить защиту от brute force:
+
+  * [ ] rate limit на login/register
+  * [ ] одинаковые сообщения для неверного email/password
+  * [ ] audit log для auth-событий
+* [ ] Продумать CSRF модель, если refresh хранится в cookie.
+* [ ] Не отдавать чувствительные auth-ошибки в UI.
+
+## Backend
+
+* [ ] Таблица пользователей.
+* [ ] Таблица refresh sessions/tokens.
+* [ ] `POST /auth/setup` для первого пользователя.
+* [ ] `POST /auth/login`.
+* [ ] `POST /auth/refresh`.
+* [ ] `POST /auth/logout`.
+* [ ] Middleware auth через JWT claims.
+* [ ] Привязать пользовательские данные к owner/user id до multi-user сценариев.
+
+## Frontend
+
+* [ ] Первый экран setup/register, если пользователей нет.
+* [ ] Login screen.
+* [ ] Session bootstrap при открытии приложения.
+* [ ] Авто-refresh access token.
+* [ ] Ясные, но безопасные сообщения об ошибках входа.
+
+## Acceptance Criteria
+
+* [ ] Новый пользователь может настроить сервис при первом запуске.
+* [ ] После setup dashboard доступен только после login.
+* [ ] Пароли хранятся только как Argon2id hash.
+* [ ] JWT нельзя использовать после logout/refresh rotation revoke.
+* [ ] Auth покрыт unit и handler tests.
 
 ---
 
@@ -878,6 +965,15 @@ type AllocationSimulation struct {
 * [ ] Автоматический ежедневный backup БД.
 * [ ] Ручной backup из WebUI.
 * [ ] Restore из backup.
+* [ ] Backup перед опасными операциями: import, bulk delete, restore, migrations.
+* [ ] Настроить retention policy:
+
+  * [ ] ежедневные backup за 7 дней
+  * [ ] еженедельные backup за 4 недели
+  * [ ] ручные backup без автоудаления
+* [ ] Шифровать backup или хранить в защищенной директории.
+* [ ] Проверять restore на тестовой БД.
+* [ ] Документировать команды backup/restore.
 
 ## NixOS integration
 
@@ -885,6 +981,14 @@ type AllocationSimulation struct {
 * [ ] systemd service.
 * [ ] local reverse proxy option.
 * [ ] backup timer.
+
+## Docker
+
+* [ ] Добавить Dockerfile для backend.
+* [ ] Добавить Dockerfile для web.
+* [ ] Добавить production docker-compose для backend + web + PostgreSQL.
+* [ ] Добавить healthcheck для backend container.
+* [ ] Не запекать secrets в image.
 
 ## Acceptance Criteria
 
@@ -1027,6 +1131,16 @@ LLM должна получать примерно такой контекст:
 * [ ] Миграции.
 * [ ] Тестирование.
 * [ ] Docker/NixOS окружение.
+
+## CI/CD до v1.0
+
+* [ ] Добавить frontend CI job:
+
+  * [ ] `npm ci`
+  * [ ] `npm run lint`
+  * [ ] `npm run build`
+* [ ] Backend CI и frontend CI должны быть отдельными checks.
+* [ ] Добавить OpenAPI validation check, когда spec станет обязательной.
 
 ---
 
