@@ -16,9 +16,11 @@ import {
   Wallet,
 } from "lucide-react";
 import {
+  Area,
   Bar,
-  BarChart,
   CartesianGrid,
+  ComposedChart,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -162,6 +164,18 @@ function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) => void 
     period: bucket.period,
     interest: amountFor(bucket.interest_income),
   }));
+  const balances = data?.account_balances ?? [];
+  const primaryCurrency = balances[0]?.currency ?? "RUB";
+  const portfolioValue = balances.reduce((sum, account) => sum + Math.max(account.balance_minor, 0), 0);
+  const allocation = balances
+    .filter((account) => account.balance_minor > 0)
+    .sort((a, b) => b.balance_minor - a.balance_minor)
+    .slice(0, 6)
+    .map((account) => ({
+      ...account,
+      share: portfolioValue > 0 ? Math.round((account.balance_minor / portfolioValue) * 100) : 0,
+    }));
+  const monthlyNet = amountFor(data?.monthly_income, primaryCurrency) - amountFor(data?.monthly_expense, primaryCurrency);
 
   if (summary.isLoading) {
     return <Empty>Loading dashboard</Empty>;
@@ -172,6 +186,18 @@ function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) => void 
 
   return (
     <div className="grid">
+      <section className="portfolio-hero">
+        <div>
+          <p className="eyebrow">Portfolio value</p>
+          <strong>{formatMoney(portfolioValue, primaryCurrency)}</strong>
+          <span>{data?.active_accounts_count ?? 0} active accounts across {(data?.balances ?? []).length || 1} currency</span>
+        </div>
+        <div className={monthlyNet < 0 ? "hero-delta negative" : "hero-delta"}>
+          <span>Net this month</span>
+          <strong>{formatMoney(monthlyNet, primaryCurrency)}</strong>
+        </div>
+      </section>
+
       <div className="metric-strip">
         {(data?.balances ?? []).map((amount) => (
           <div className="metric" key={amount.currency}>
@@ -197,28 +223,68 @@ function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) => void 
         </div>
       </div>
 
+      <div className="dashboard-main">
+        <Panel title="Cashflow trend">
+          <ChartShell size="large">
+            <ComposedChart data={chartData} margin={{ top: 8, right: 18, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="netFlow" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#315f8d" stopOpacity={0.22} />
+                  <stop offset="95%" stopColor="#315f8d" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#e2e9e5" vertical={false} />
+              <XAxis dataKey="period" axisLine={false} tickLine={false} />
+              <YAxis axisLine={false} tickLine={false} width={70} tickFormatter={(value) => formatCompactMoney(Number(value))} />
+              <Tooltip formatter={(value) => formatMoney(Number(value), primaryCurrency)} />
+              <Legend />
+              <Area type="monotone" dataKey="net" name="Net" stroke="#315f8d" fill="url(#netFlow)" strokeWidth={2} />
+              <Bar dataKey="income" name="Income" fill="#24735a" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="expense" name="Expense" fill="#a23b3b" radius={[4, 4, 0, 0]} />
+              <Line type="monotone" dataKey="net" name="Net line" stroke="#1f2937" strokeWidth={2} dot={false} />
+            </ComposedChart>
+          </ChartShell>
+        </Panel>
+
+        <Panel title="Allocation">
+          <div className="allocation-list">
+            {allocation.map((account) => (
+              <button className="allocation-row" key={account.account_id} onClick={() => onOpenAccount(account.account_id)}>
+                <span>
+                  <strong>{account.name}</strong>
+                  <small>{account.bank || account.type}</small>
+                </span>
+                <span className="allocation-value">{formatMoney(account.balance_minor, account.currency)}</span>
+                <span className="allocation-bar"><i style={{ width: `${account.share}%` }} /></span>
+                <em>{account.share}%</em>
+              </button>
+            ))}
+            {!allocation.length ? <Empty>No positive balances</Empty> : null}
+          </div>
+        </Panel>
+      </div>
+
       <Panel title="Cashflow">
         <ChartShell>
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="period" />
-            <YAxis />
-            <Tooltip formatter={(value) => formatMoney(Number(value))} />
-            <Bar dataKey="income" fill="#287f61" />
-            <Bar dataKey="expense" fill="#b64b4b" />
-            <Bar dataKey="net" fill="#3b6ea8" />
-          </BarChart>
+          <ComposedChart data={chartData} margin={{ top: 8, right: 14, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="#e2e9e5" vertical={false} />
+            <XAxis dataKey="period" axisLine={false} tickLine={false} />
+            <YAxis axisLine={false} tickLine={false} width={70} tickFormatter={(value) => formatCompactMoney(Number(value))} />
+            <Tooltip formatter={(value) => formatMoney(Number(value), primaryCurrency)} />
+            <Bar dataKey="income" fill="#24735a" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="expense" fill="#a23b3b" radius={[4, 4, 0, 0]} />
+          </ComposedChart>
         </ChartShell>
       </Panel>
 
       <Panel title="Interest income">
         <ChartShell>
-          <LineChart data={interestData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="period" />
-            <YAxis />
-            <Tooltip formatter={(value) => formatMoney(Number(value))} />
-            <Line type="monotone" dataKey="interest" stroke="#8a6f2a" strokeWidth={2} />
+          <LineChart data={interestData} margin={{ top: 8, right: 14, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="#e2e9e5" vertical={false} />
+            <XAxis dataKey="period" axisLine={false} tickLine={false} />
+            <YAxis axisLine={false} tickLine={false} width={70} tickFormatter={(value) => formatCompactMoney(Number(value))} />
+            <Tooltip formatter={(value) => formatMoney(Number(value), primaryCurrency)} />
+            <Line type="monotone" dataKey="interest" stroke="#8a6f2a" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} />
           </LineChart>
         </ChartShell>
       </Panel>
@@ -688,14 +754,25 @@ function RuleRow({ rule }: { rule: InterestRule }) {
   );
 }
 
-function ChartShell({ children }: { children: ReactElement }) {
+function ChartShell({ children, size = "regular" }: { children: ReactElement; size?: "regular" | "large" }) {
   return (
-    <div className="chart">
-      <ResponsiveContainer width="100%" height={260}>
+    <div className={`chart chart-${size}`}>
+      <ResponsiveContainer width="100%" height="100%">
         {children}
       </ResponsiveContainer>
     </div>
   );
+}
+
+function formatCompactMoney(value: number) {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) {
+    return `${Math.round(value / 1_000_000)}M`;
+  }
+  if (abs >= 1_000) {
+    return `${Math.round(value / 1_000)}K`;
+  }
+  return `${value}`;
 }
 
 function runningBalance(transactions: Transaction[]) {
