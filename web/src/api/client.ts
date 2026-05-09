@@ -113,6 +113,8 @@ export const api = {
     accountId: string,
     input: {
       annual_rate_bps: number;
+      promo_rate_bps?: number | null;
+      promo_end_date?: string | null;
       accrual_frequency: "daily";
       capitalization_frequency: "none" | "daily" | "monthly" | "end_of_term";
       day_count_convention: "actual_365";

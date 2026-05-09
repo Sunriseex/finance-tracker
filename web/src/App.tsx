@@ -515,6 +515,8 @@ function CreateAccountForm({ onDone }: { onDone: () => void }) {
     opened_at: today,
     initial: "",
     rate: "",
+    promoRate: "",
+    promoEndDate: "",
     capitalization: "none",
   });
   const mutation = useMutation({
@@ -538,8 +540,14 @@ function CreateAccountForm({ onDone }: { onDone: () => void }) {
       }
       const rate = Number(form.rate.replace(",", "."));
       if (rate > 0) {
+        const promoRate = Number(form.promoRate.replace(",", "."));
+        if ((promoRate > 0 && !form.promoEndDate) || (promoRate <= 0 && form.promoEndDate)) {
+          throw new Error("Promo rate and promo end date must be set together");
+        }
         await api.createInterestRule(account.id, {
           annual_rate_bps: Math.round(rate * 100),
+          promo_rate_bps: promoRate > 0 ? Math.round(promoRate * 100) : null,
+          promo_end_date: promoRate > 0 ? form.promoEndDate || null : null,
           accrual_frequency: "daily",
           capitalization_frequency: form.capitalization as "none" | "daily" | "monthly" | "end_of_term",
           day_count_convention: "actual_365",
@@ -564,6 +572,8 @@ function CreateAccountForm({ onDone }: { onDone: () => void }) {
       <Field label="Opened"><Input type="date" value={form.opened_at} onChange={(event) => setForm({ ...form, opened_at: event.target.value })} /></Field>
       <Field label="Initial balance"><Input inputMode="decimal" value={form.initial} onChange={(event) => setForm({ ...form, initial: event.target.value })} /></Field>
       <Field label="Annual rate %"><Input inputMode="decimal" value={form.rate} onChange={(event) => setForm({ ...form, rate: event.target.value })} /></Field>
+      <Field label="Promo rate %"><Input inputMode="decimal" value={form.promoRate} onChange={(event) => setForm({ ...form, promoRate: event.target.value })} /></Field>
+      <Field label="Promo end"><Input type="date" value={form.promoEndDate} onChange={(event) => setForm({ ...form, promoEndDate: event.target.value })} /></Field>
       <Field label="Capitalization"><Select value={form.capitalization} onChange={(event) => setForm({ ...form, capitalization: event.target.value })}><option>none</option><option>daily</option><option>monthly</option><option>end_of_term</option></Select></Field>
       <Button disabled={mutation.isPending}>Create</Button>
     </FormShell>
