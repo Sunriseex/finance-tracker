@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/sunriseex/finance-manager/internal/http/dto"
+	"github.com/sunriseex/finance-manager/internal/repository"
 	"github.com/sunriseex/finance-manager/internal/services"
 )
 
@@ -151,5 +153,53 @@ func TestWriteValidationOrServiceErrorWritesInternalErrorForRegularError(t *test
 
 	if body.Error.Code != "internal_error" {
 		t.Fatalf("code = %q, want internal_error", body.Error.Code)
+	}
+}
+
+func TestWriteServiceErrorMapsKnownErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "not found",
+			err:        repository.ErrNotFound,
+			wantStatus: http.StatusNotFound,
+			wantCode:   "not_found",
+		},
+		{
+			name:       "wrapped validation",
+			err:        errors.Join(errors.New("save failed"), services.ValidationError("amount must be positive")),
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "validation_error",
+		},
+		{
+			name:       "deadline",
+			err:        context.DeadlineExceeded,
+			wantStatus: http.StatusGatewayTimeout,
+			wantCode:   "request_timeout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+
+			writeServiceError(rec, tt.err)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+
+			var body dto.ErrorEnvelope
+			if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if body.Error.Code != tt.wantCode {
+				t.Fatalf("code = %q, want %q", body.Error.Code, tt.wantCode)
+			}
+		})
 	}
 }

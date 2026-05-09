@@ -24,6 +24,9 @@ The project is intended as a practical backend learning project with production-
 * PostgreSQL
 * Goose migrations
 * Chi router
+* React + Vite + TypeScript
+* TanStack Query
+* Recharts
 * golangci-lint
 * GitHub Actions
 
@@ -56,6 +59,7 @@ The project is intended as a practical backend learning project with production-
 * PostgreSQL 17 or compatible.
 * `goose` for running migrations.
 * `golangci-lint` for local linting.
+* Node.js and npm for the WebUI.
 
 ## Configuration
 
@@ -168,6 +172,18 @@ curl -H "Authorization: Bearer <API_AUTH_TOKEN>" \
   http://localhost:8080/api/accounts
 ```
 
+## Running the WebUI
+
+Start the API on `:8080` first, then run:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173` and set the Bearer token in the API panel. The WebUI stores the token in browser `localStorage`; no token is committed or bundled.
+
 ## API Overview
 
 Accounts:
@@ -179,6 +195,12 @@ GET    /api/accounts/{id}
 PATCH  /api/accounts/{id}
 POST   /api/accounts/{id}/archive
 GET    /api/accounts/{id}/balance
+```
+
+Categories:
+
+```text
+GET /api/categories
 ```
 
 Transactions:
@@ -203,6 +225,7 @@ GET   /api/accounts/{id}/interest-rules
 POST  /api/accounts/{id}/interest-rules
 PATCH /api/interest-rules/{id}
 POST  /api/accounts/{id}/accrue-interest
+POST  /api/accounts/{id}/recalculate-interest
 ```
 
 Example: create an account:

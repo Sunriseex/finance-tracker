@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 
@@ -13,14 +14,17 @@ import (
 )
 
 type Config struct {
-	TelegramToken    string
-	TelegramUserID   int64
-	AppVersion       string
-	DataPath         string
-	DepositsDataPath string
-	DatabaseURL      string
-	APIAuthToken     string
-	LogLevel         slog.Level
+	TelegramToken      string
+	TelegramUserID     int64
+	AppVersion         string
+	DataPath           string
+	DepositsDataPath   string
+	DatabaseURL        string
+	APIAuthToken       string
+	CORSAllowedOrigins []string
+	RateLimitRequests  int
+	RateLimitWindow    time.Duration
+	LogLevel           slog.Level
 }
 
 var AppConfig *Config
@@ -81,6 +85,12 @@ func Init() error {
 		DatabaseURL:      getEnv("DATABASE_URL", "postgres://finance_tracker:finance_tracker@localhost:5432/finance_tracker?sslmode=disable"),
 		LogLevel:         logLevel,
 		APIAuthToken:     getEnv("API_AUTH_TOKEN", ""),
+		CORSAllowedOrigins: getEnvList("CORS_ALLOWED_ORIGINS", []string{
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+		}),
+		RateLimitRequests: getEnvInt("RATE_LIMIT_REQUESTS", 120),
+		RateLimitWindow:   getEnvDuration("RATE_LIMIT_WINDOW", time.Minute),
 	}
 
 	initLogger(logLevel)
@@ -149,4 +159,41 @@ func getEnvInt64(key string, defaultValue int64) int64 {
 		}
 	}
 	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
+		}
+	}
+	return defaultValue
+}
+
+func getEnvList(key string, defaultValue []string) []string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue
+	}
+
+	items := make([]string, 0)
+	for part := range strings.SplitSeq(value, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	if len(items) == 0 {
+		return defaultValue
+	}
+	return items
 }

@@ -1,32 +1,66 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
 	appmiddleware "github.com/sunriseex/finance-manager/internal/http/middleware"
-	"github.com/sunriseex/finance-manager/internal/postgres"
+	"github.com/sunriseex/finance-manager/internal/repository"
 )
 
-type Handler struct {
-	store *postgres.Store
+type Store interface {
+	Accounts() repository.AccountRepository
+	Transactions() repository.TransactionRepository
+	Categories() repository.CategoryRepository
+	InterestRules() repository.InterestRuleRepository
+	InterestAccruals() repository.InterestAccrualRepository
+	Ping(ctx context.Context) error
 }
 
-func NewRouter(store *postgres.Store, apiAuthToken string) http.Handler {
+type Handler struct {
+	store Store
+}
+
+type RouterConfig struct {
+	APIAuthToken       string
+	CORSAllowedOrigins []string
+	RateLimitRequests  int
+	RateLimitWindow    time.Duration
+}
+
+func NewRouter(store Store, cfg RouterConfig) http.Handler {
 	h := &Handler{store: store}
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(appmiddleware.RequestLogger)
 	r.Use(chimiddleware.Recoverer)
+	r.Use(appmiddleware.CORS(&appmiddleware.CORSConfig{
+		AllowedOrigins: cfg.CORSAllowedOrigins,
+		AllowedMethods: []string{
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodPatch,
+			http.MethodDelete,
+			http.MethodOptions,
+		},
+		AllowedHeaders: []string{"Authorization", "Content-Type"},
+	}))
+	if cfg.RateLimitRequests > 0 && cfg.RateLimitWindow > 0 {
+		r.Use(appmiddleware.RateLimitByIP(cfg.RateLimitRequests, cfg.RateLimitWindow))
+	}
 
 	r.Get("/health", h.health)
 	r.Get("/ready", h.ready)
 
 	r.Route("/api", func(r chi.Router) {
-		r.Use(appmiddleware.BearerTokenAuth(apiAuthToken))
+		r.Use(appmiddleware.BearerTokenAuth(cfg.APIAuthToken))
+
+		r.Get("/categories", h.listCategories)
 
 		r.Get("/accounts", h.listAccounts)
 		r.Post("/accounts", h.createAccount)
