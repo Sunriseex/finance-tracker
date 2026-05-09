@@ -10,28 +10,36 @@ import (
 
 type TransferService struct {
 	transactions *TransactionService
+	currency     *CurrencyService
 }
 
 func NewTransferService(transactions *TransactionService) *TransferService {
 	if transactions == nil {
 		transactions = NewTransactionService()
 	}
-	return &TransferService{transactions: transactions}
+	return &TransferService{transactions: transactions, currency: NewCurrencyService(nil)}
 }
 
 type CreateTransferRequest struct {
 	FromAccountID string
 	ToAccountID   string
+	FromCurrency  string
+	ToCurrency    string
 	AmountMinor   int64
 	Description   string
 }
 
 type CreateTransferResponse struct {
-	Out *models.Transaction
-	In  *models.Transaction
+	Out          *models.Transaction
+	In           *models.Transaction
+	ExchangeRate string
 }
 
-func (s *TransferService) Create(ctx context.Context, req CreateTransferRequest) (*CreateTransferResponse, error) {
+func (s *TransferService) Create(ctx context.Context, req *CreateTransferRequest) (*CreateTransferResponse, error) {
+	if req == nil {
+		return nil, validationError("transfer request is required")
+	}
+
 	fromAccountID := strings.TrimSpace(req.FromAccountID)
 	toAccountID := strings.TrimSpace(req.ToAccountID)
 	if fromAccountID == "" {
@@ -47,6 +55,17 @@ func (s *TransferService) Create(ctx context.Context, req CreateTransferRequest)
 		return nil, validationError("transfer amount must be positive")
 	}
 
+	inAmountMinor := req.AmountMinor
+	exchangeRate := "1"
+	if strings.TrimSpace(req.FromCurrency) != "" || strings.TrimSpace(req.ToCurrency) != "" {
+		convertedAmountMinor, rate, err := s.currency.ConvertMinor(ctx, req.AmountMinor, req.FromCurrency, req.ToCurrency)
+		if err != nil {
+			return nil, fmt.Errorf("convert transfer amount: %w", err)
+		}
+		inAmountMinor = convertedAmountMinor
+		exchangeRate = rate.String()
+	}
+
 	inRelatedID := fromAccountID
 	outRelatedID := toAccountID
 	created, err := s.transactions.CreateMany(ctx, &CreateTransactionRequest{
@@ -59,12 +78,12 @@ func (s *TransferService) Create(ctx context.Context, req CreateTransferRequest)
 		AccountID:        toAccountID,
 		RelatedAccountID: &inRelatedID,
 		Type:             models.TransactionTypeTransferIn,
-		AmountMinor:      req.AmountMinor,
+		AmountMinor:      inAmountMinor,
 		Description:      req.Description,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create transfer transactions: %w", err)
 	}
 
-	return &CreateTransferResponse{Out: &created[0], In: &created[1]}, nil
+	return &CreateTransferResponse{Out: &created[0], In: &created[1], ExchangeRate: exchangeRate}, nil
 }

@@ -272,6 +272,7 @@ h2 {
 }
 
 .metric span,
+.metric small,
 .summary-grid span,
 .field span {
   color: var(--muted);
@@ -282,6 +283,39 @@ h2 {
 .metric strong {
   font-size: 22px;
   letter-spacing: 0;
+}
+
+.primary-metric::before {
+  background: linear-gradient(180deg, var(--gold), var(--green));
+}
+
+.currency-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-soft);
+}
+
+.currency-tabs button {
+  min-width: 58px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.currency-tabs button.active,
+.currency-tabs button:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--hover);
 }
 
 .panel {
@@ -445,6 +479,14 @@ nav button:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.allocation-converted {
+  grid-column: 2 / 4;
+  justify-self: end;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .allocation-bar {
   grid-column: 1 / 3;
   height: 7px;
@@ -505,6 +547,31 @@ tbody tr:hover {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
+}
+
+.stacked-amount {
+  display: grid;
+  gap: 2px;
+}
+
+.stacked-amount small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.conversion-preview {
+  display: grid;
+  gap: 4px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--subtle);
+}
+
+.conversion-preview span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .danger {

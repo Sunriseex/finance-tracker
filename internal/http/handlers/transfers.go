@@ -18,17 +18,6 @@ func (h *Handler) createTransfer(w http.ResponseWriter, r *http.Request) {
 	fromAccountID := strings.TrimSpace(req.FromAccountID)
 	toAccountID := strings.TrimSpace(req.ToAccountID)
 
-	if fromAccountID != "" {
-		if !h.ensureAccountExists(w, r, fromAccountID) {
-			return
-		}
-	}
-	if toAccountID != "" {
-		if !h.ensureAccountExists(w, r, toAccountID) {
-			return
-		}
-	}
-
 	if !validateOptionalUUID(w, fromAccountID, "from_account_id") {
 		return
 	}
@@ -36,11 +25,22 @@ func (h *Handler) createTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fromAccount, ok := h.accountByID(w, r, fromAccountID, "from_account_id")
+	if !ok {
+		return
+	}
+	toAccount, ok := h.accountByID(w, r, toAccountID, "to_account_id")
+	if !ok {
+		return
+	}
+
 	result, err := services.NewTransferService(
 		services.NewTransactionService(h.store.Transactions()),
-	).Create(r.Context(), services.CreateTransferRequest{
+	).Create(r.Context(), &services.CreateTransferRequest{
 		FromAccountID: fromAccountID,
 		ToAccountID:   toAccountID,
+		FromCurrency:  fromAccount.Currency,
+		ToCurrency:    toAccount.Currency,
 		AmountMinor:   req.AmountMinor,
 		Description:   req.Description,
 	})
@@ -50,7 +50,8 @@ func (h *Handler) createTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, dto.TransferResponse{
-		Out: dto.TransactionFromModel(result.Out),
-		In:  dto.TransactionFromModel(result.In),
+		Out:          dto.TransactionFromModel(result.Out),
+		In:           dto.TransactionFromModel(result.In),
+		ExchangeRate: result.ExchangeRate,
 	})
 }

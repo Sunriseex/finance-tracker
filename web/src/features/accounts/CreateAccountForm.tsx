@@ -4,6 +4,7 @@ import { api } from "../../api/client";
 import { parseMoneyToMinor } from "../../api/money";
 import type { AccountType } from "../../api/types";
 import { errorMessage, invalidateMoney } from "../../shared/api/query";
+import { currencyOptions } from "../../shared/currencies";
 import { accountTypes, today } from "../../shared/constants";
 import { Button, Field, FormShell, Input, Select } from "../../shared/ui";
 
@@ -65,13 +66,14 @@ export function CreateAccountForm({ onDone }: { onDone: () => void }) {
     },
     onError: (err) => setError(errorMessage(err)),
   });
+  const currencies = currencyOptions();
 
   return (
     <FormShell title="Create account" error={error} onSubmit={() => mutation.mutate()}>
       <Field label="Name"><Input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
       <Field label="Bank"><Input value={form.bank} onChange={(event) => setForm({ ...form, bank: event.target.value })} /></Field>
       <Field label="Type"><Select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as AccountType })}>{accountTypes.map((type) => <option key={type}>{type}</option>)}</Select></Field>
-      <Field label="Currency"><Input value={form.currency} maxLength={3} onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} /></Field>
+      <Field label="Currency"><Select value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value })}>{currencies.map((currency) => <option key={currency.code} value={currency.code}>{currency.label}</option>)}</Select></Field>
       <Field label="Opened"><Input type="date" value={form.opened_at} onChange={(event) => setForm({ ...form, opened_at: event.target.value })} /></Field>
       <Field label="Initial balance"><Input inputMode="decimal" value={form.initial} onChange={(event) => setForm({ ...form, initial: event.target.value })} /></Field>
       <Field label="Annual rate %"><Input inputMode="decimal" value={form.rate} onChange={(event) => setForm({ ...form, rate: event.target.value })} /></Field>
@@ -82,4 +84,3 @@ export function CreateAccountForm({ onDone }: { onDone: () => void }) {
     </FormShell>
   );
 }
-
