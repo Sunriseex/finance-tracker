@@ -25,3 +25,10 @@ AGENTS.md
 
 # Local environment
 .env
+web/.env
+web/.env.local
+web/.env.*.local
+
+# WebUI
+web/node_modules/
+web/dist/

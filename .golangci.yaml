@@ -83,6 +83,10 @@ linters:
       - std-error-handling
     paths:
       - vendor$
+      - web/node_modules$
+      - web/node_modules/.*
+      - web/dist$
+      - web/dist/.*
       - internal/commands$
       - internal/commands/.*
       - third_party$
@@ -98,6 +102,10 @@ formatters:
     generated: lax
     paths:
       - vendor$
+      - web/node_modules$
+      - web/node_modules/.*
+      - web/dist$
+      - web/dist/.*
       - internal/commands$
       - internal/commands/.*
       - third_party$
