@@ -6,10 +6,13 @@ import {
   ArrowDownLeft,
   ArrowRightLeft,
   ArrowUpRight,
+  Archive,
   BadgePercent,
   Landmark,
+  Pencil,
   Plus,
   Settings,
+  Trash2,
   Wallet,
 } from "lucide-react";
 import {
@@ -295,6 +298,8 @@ function AccountRate({ accountId }: { accountId: string }) {
 
 function AccountDetails({ account, onBack }: { account: Account; onBack: () => void }) {
   const queryClient = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
+  const [actionError, setActionError] = useState("");
   const transactions = useQuery({ queryKey: ["transactions", account.id], queryFn: () => api.transactions(account.id) });
   const balance = useQuery({ queryKey: ["balance", account.id], queryFn: () => api.accountBalance(account.id) });
   const rules = useQuery({ queryKey: ["interest-rules", account.id], queryFn: () => api.interestRules(account.id) });
@@ -302,11 +307,29 @@ function AccountDetails({ account, onBack }: { account: Account; onBack: () => v
     mutationFn: () => api.accrueInterest(account.id, today),
     onSuccess: () => invalidateMoney(queryClient),
   });
+  const archive = useMutation({
+    mutationFn: () => api.archiveAccount(account.id),
+    onSuccess: () => {
+      setActionError("");
+      invalidateMoney(queryClient);
+    },
+    onError: (err) => setActionError(errorMessage(err)),
+  });
   const running = useMemo(() => runningBalance(transactions.data ?? []), [transactions.data]);
 
   return (
     <div className="grid">
-      <Panel title="Account summary" action={<Button onClick={onBack}>Back</Button>}>
+      <Panel
+        title="Account summary"
+        action={
+          <div className="panel-actions">
+            <Button onClick={() => setEditOpen(true)}><Pencil size={16} /> Edit</Button>
+            <Button onClick={() => archive.mutate()} disabled={archive.isPending || !account.is_active}><Archive size={16} /> Archive</Button>
+            <Button onClick={onBack}>Back</Button>
+          </div>
+        }
+      >
+        {actionError ? <div className="error inline-error">{actionError}</div> : null}
         <div className="summary-grid">
           <div><span>Balance</span><strong>{formatMoney(balance.data?.balance_minor ?? 0, account.currency)}</strong></div>
           <div><span>Bank</span><strong>{account.bank || "-"}</strong></div>
@@ -338,8 +361,16 @@ function AccountDetails({ account, onBack }: { account: Account; onBack: () => v
       </Panel>
 
       <Panel title="Transactions">
-        <TransactionsTable transactions={transactions.data ?? []} accounts={[account]} categories={[]} />
+        <TransactionsTable transactions={transactions.data ?? []} accounts={[account]} categories={[]} allowDelete />
       </Panel>
+
+      {editOpen ? (
+        <div className="modal-backdrop" onClick={() => setEditOpen(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <EditAccountForm account={account} onDone={() => setEditOpen(false)} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -379,7 +410,7 @@ function TransactionsView({ accounts, categories }: { accounts: Account[]; categ
         <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
       </div>
-      <TransactionsTable transactions={filtered} accounts={accounts} categories={categories} />
+      <TransactionsTable transactions={filtered} accounts={accounts} categories={categories} allowDelete />
       {createOpen ? (
         <div className="modal-backdrop" onClick={() => setCreateOpen(false)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
@@ -453,6 +484,42 @@ function CreateAccountForm({ onDone }: { onDone: () => void }) {
       <Field label="Annual rate %"><Input inputMode="decimal" value={form.rate} onChange={(event) => setForm({ ...form, rate: event.target.value })} /></Field>
       <Field label="Capitalization"><Select value={form.capitalization} onChange={(event) => setForm({ ...form, capitalization: event.target.value })}><option>none</option><option>daily</option><option>monthly</option><option>end_of_term</option></Select></Field>
       <Button disabled={mutation.isPending}>Create</Button>
+    </FormShell>
+  );
+}
+
+function EditAccountForm({ account, onDone }: { account: Account; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({
+    name: account.name,
+    bank: account.bank ?? "",
+    type: account.type,
+    currency: account.currency,
+    opened_at: account.opened_at.slice(0, 10),
+    is_active: account.is_active,
+  });
+  const mutation = useMutation({
+    mutationFn: () => api.updateAccount(account.id, form),
+    onSuccess: () => {
+      invalidateMoney(queryClient);
+      onDone();
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  return (
+    <FormShell title="Edit account" error={error} onSubmit={() => mutation.mutate()}>
+      <Field label="Name"><Input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
+      <Field label="Bank"><Input value={form.bank} onChange={(event) => setForm({ ...form, bank: event.target.value })} /></Field>
+      <Field label="Type"><Select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as AccountType })}>{accountTypes.map((type) => <option key={type}>{type}</option>)}</Select></Field>
+      <Field label="Currency"><Input value={form.currency} maxLength={3} onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} /></Field>
+      <Field label="Opened"><Input type="date" value={form.opened_at} onChange={(event) => setForm({ ...form, opened_at: event.target.value })} /></Field>
+      <label className="checkbox-field">
+        <input type="checkbox" checked={form.is_active} onChange={(event) => setForm({ ...form, is_active: event.target.checked })} />
+        <span>Active</span>
+      </label>
+      <Button disabled={mutation.isPending}>Save</Button>
     </FormShell>
   );
 }
@@ -541,7 +608,24 @@ function FormShell({ title, error, onSubmit, children }: { title: string; error:
   );
 }
 
-function TransactionsTable({ transactions, accounts, categories, compact = false }: { transactions: Transaction[]; accounts: Account[]; categories: Category[]; compact?: boolean }) {
+function TransactionsTable({
+  transactions,
+  accounts,
+  categories,
+  compact = false,
+  allowDelete = false,
+}: {
+  transactions: Transaction[];
+  accounts: Account[];
+  categories: Category[];
+  compact?: boolean;
+  allowDelete?: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteTransaction(id),
+    onSuccess: () => invalidateMoney(queryClient),
+  });
   const accountNames = new Map(accounts.map((account) => [account.id, account.name]));
   const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
 
@@ -551,9 +635,10 @@ function TransactionsTable({ transactions, accounts, categories, compact = false
 
   return (
     <div className="table-wrap">
+      {deleteMutation.error ? <div className="error inline-error">{errorMessage(deleteMutation.error)}</div> : null}
       <table>
         <thead>
-          <tr><th>Date</th><th>Type</th>{compact ? null : <th>Account</th>}{compact ? null : <th>Category</th>}<th>Description</th><th>Amount</th></tr>
+          <tr><th>Date</th><th>Type</th>{compact ? null : <th>Account</th>}{compact ? null : <th>Category</th>}<th>Description</th><th>Amount</th>{allowDelete ? <th></th> : null}</tr>
         </thead>
         <tbody>
           {transactions.map((transaction) => (
@@ -564,12 +649,31 @@ function TransactionsTable({ transactions, accounts, categories, compact = false
               {compact ? null : <td>{transaction.category_id ? categoryNames.get(transaction.category_id) ?? transaction.category_id.slice(0, 8) : "-"}</td>}
               <td>{transaction.description || "-"}</td>
               <td className={signedAmount(transaction) < 0 ? "amount danger" : "amount"}>{formatMoney(signedAmount(transaction))}</td>
+              {allowDelete ? (
+                <td>
+                  <IconButton
+                    title="Delete transaction"
+                    disabled={deleteMutation.isPending || isTransferTransaction(transaction)}
+                    onClick={() => {
+                      if (window.confirm("Delete this transaction?")) {
+                        deleteMutation.mutate(transaction.id);
+                      }
+                    }}
+                  >
+                    <Trash2 size={16} />
+                  </IconButton>
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   );
+}
+
+function isTransferTransaction(transaction: Transaction) {
+  return transaction.type === "transfer_in" || transaction.type === "transfer_out";
 }
 
 function RuleRow({ rule }: { rule: InterestRule }) {

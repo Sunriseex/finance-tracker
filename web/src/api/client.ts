@@ -83,6 +83,12 @@ export const api = {
   interestRules: (accountId: string) => apiFetch<InterestRule[]>(`/accounts/${accountId}/interest-rules`),
   createAccount: (input: { name: string; bank: string; type: AccountType; currency: string; opened_at: string }) =>
     apiFetch<Account>("/accounts", { method: "POST", body: JSON.stringify(input) }),
+  updateAccount: (
+    id: string,
+    input: { name: string; bank: string; type: AccountType; currency: string; opened_at: string; is_active: boolean },
+  ) => apiFetch<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  archiveAccount: (id: string) =>
+    apiFetch<void>(`/accounts/${id}/archive`, { method: "POST" }),
   createTransaction: (input: {
     account_id: string;
     type: TransactionType;
@@ -91,6 +97,8 @@ export const api = {
     description: string;
     occurred_at: string;
   }) => apiFetch<Transaction>("/transactions", { method: "POST", body: JSON.stringify(input) }),
+  deleteTransaction: (id: string) =>
+    apiFetch<void>(`/transactions/${id}`, { method: "DELETE" }),
   createTransfer: (input: { from_account_id: string; to_account_id: string; amount_minor: number; description: string }) =>
     apiFetch<{ out: Transaction; in: Transaction }>("/transfers", { method: "POST", body: JSON.stringify(input) }),
   createInterestRule: (

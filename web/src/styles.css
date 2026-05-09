@@ -201,6 +201,13 @@ h2 {
   margin-bottom: 14px;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .button,
 .icon-button {
   border: 1px solid var(--line-strong);
@@ -253,6 +260,15 @@ h2 {
 .field {
   display: grid;
   gap: 5px;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .auth-panel {
@@ -392,6 +408,10 @@ tbody tr:hover {
   border: 1px solid #f2c7c7;
   border-radius: 8px;
   padding: 10px;
+}
+
+.inline-error {
+  margin-bottom: 12px;
 }
 
 @media (max-width: 860px) {
