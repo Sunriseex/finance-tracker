@@ -33,6 +33,7 @@ func NewAuthService(users repository.UserRepository, refresh repository.RefreshT
 	if len(audit) > 0 {
 		auditRepo = audit[0]
 	}
+
 	return &AuthService{
 		users:        users,
 		refresh:      refresh,
@@ -42,6 +43,11 @@ func NewAuthService(users repository.UserRepository, refresh repository.RefreshT
 		verifyFunc:   security.VerifyPassword,
 		now:          time.Now,
 	}
+}
+
+func (s *AuthService) WithAccountRepository(repo repository.AccountRepository) *AuthService {
+	s.accounts = repo
+	return s
 }
 
 type AuthRequest struct {
@@ -56,14 +62,6 @@ type AuthSession struct {
 	AccessExpiresAt  time.Time
 	RefreshToken     string
 	RefreshExpiresAt time.Time
-}
-
-type AuthServiceOption func(*AuthService)
-
-func WithAuthAccountRepository(repo repository.AccountRepository) AuthServiceOption {
-	return func(s *AuthService) {
-		s.accounts = repo
-	}
 }
 
 func (s *AuthService) Setup(ctx context.Context, req AuthRequest) (*AuthSession, error) {
@@ -254,6 +252,7 @@ func (s *AuthService) buildUser(req AuthRequest) (*models.User, error) {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
 	now := s.now()
+
 	return &models.User{
 		ID:              uuid.NewString(),
 		Email:           email,
@@ -326,6 +325,7 @@ func (s *AuthService) auditEvent(ctx context.Context, eventType, email string, u
 	if s.audit == nil {
 		return
 	}
+
 	event := &models.AuthAuditEvent{
 		ID:        uuid.NewString(),
 		UserID:    userID,
