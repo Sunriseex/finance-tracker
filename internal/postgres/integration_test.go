@@ -230,6 +230,62 @@ func TestPostgresRepositoriesIntegration(t *testing.T) {
 	}
 }
 
+func TestAccountCreateClaimsSingleExistingUser(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	ctx := t.Context()
+	pool, err := OpenPool(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("open postgres pool: %v", err)
+	}
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `
+		TRUNCATE interest_accruals, interest_rules, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
+	`); err != nil {
+		t.Fatalf("truncate test tables; run migrations first: %v", err)
+	}
+
+	store := NewStore(pool)
+	now := time.Now().UTC()
+	userID := uuid.NewString()
+	if err := store.Users().Create(ctx, &models.User{
+		ID:              userID,
+		Email:           "owner@example.com",
+		PasswordHash:    "hash",
+		PrimaryCurrency: "RUB",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	account := &models.Account{
+		ID:        uuid.NewString(),
+		Name:      "CLI account",
+		Type:      models.AccountTypeSavings,
+		Currency:  "RUB",
+		IsActive:  true,
+		OpenedAt:  now,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := store.Accounts().Create(ctx, account); err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+
+	got, err := store.Accounts().GetByIDForUser(ctx, account.ID, userID)
+	if err != nil {
+		t.Fatalf("get account for user: %v", err)
+	}
+	if got.OwnerUserID == nil || *got.OwnerUserID != userID {
+		t.Fatalf("owner_user_id = %v, want %s", got.OwnerUserID, userID)
+	}
+}
+
 func pgDateOnly(date time.Time) time.Time {
 	return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
 }
