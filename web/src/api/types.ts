@@ -60,6 +60,14 @@ export type Amount = {
   amount_minor: number;
 };
 
+export type CurrencyRateTable = {
+  base: string;
+  date: string;
+  provider: string;
+  fetched_at: string;
+  rates: Record<string, number>;
+};
+
 export type DashboardAccountBalance = {
   account_id: string;
   name: string;

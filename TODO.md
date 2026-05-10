@@ -1167,7 +1167,13 @@ LLM должна получать примерно такой контекст:
 * [ ] USD.
 * [ ] EUR.
 * [ ] USDT.
+* [x] Fiat FX endpoint for ISO currency rates.
+* [x] Cross-currency transfer conversion.
+* [x] Dashboard base-currency tabs and converted totals.
+* [ ] Persist historical FX rates for repeatable reports.
 * [ ] Курсы валют.
+* [ ] Курсы криптовалют.
+* [ ] Курсы металлов.
 * [ ] Переоценка капитала.
 
 ## HomeLab Integration

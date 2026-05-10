@@ -183,6 +183,7 @@ npm run dev
 ```
 
 Open `http://127.0.0.1:5173` and set the Bearer token in the API panel. The WebUI stores the token in browser `localStorage`; no token is committed or bundled.
+The Vite dev server proxies `/api` to `http://127.0.0.1:18080` by default. Set `VITE_API_PROXY_TARGET` if your API uses another port.
 
 ## API Overview
 

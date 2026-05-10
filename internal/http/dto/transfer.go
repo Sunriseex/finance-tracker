@@ -8,6 +8,7 @@ type CreateTransferRequest struct {
 }
 
 type TransferResponse struct {
-	Out TransactionResponse `json:"out"`
-	In  TransactionResponse `json:"in"`
+	Out          TransactionResponse `json:"out"`
+	In           TransactionResponse `json:"in"`
+	ExchangeRate string              `json:"exchange_rate"`
 }

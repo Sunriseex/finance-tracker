@@ -61,6 +61,7 @@ func NewRouter(store Store, cfg RouterConfig) http.Handler {
 		r.Use(appmiddleware.BearerTokenAuth(cfg.APIAuthToken))
 
 		r.Get("/categories", h.listCategories)
+		r.Get("/currency-rates", h.getCurrencyRates)
 
 		r.Get("/accounts", h.listAccounts)
 		r.Post("/accounts", h.createAccount)

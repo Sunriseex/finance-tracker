@@ -5,11 +5,13 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/sunriseex/capitalflow/internal/models"
 )
 
 func TestTransferServiceCreate(t *testing.T) {
-	got, err := NewTransferService(nil).Create(t.Context(), CreateTransferRequest{
+	got, err := NewTransferService(nil).Create(t.Context(), &CreateTransferRequest{
 		FromAccountID: "account-1",
 		ToAccountID:   "account-2",
 		AmountMinor:   25_000,
@@ -36,7 +38,7 @@ func TestTransferServiceCreate(t *testing.T) {
 }
 
 func TestTransferServiceCreateRejectsSameAccount(t *testing.T) {
-	_, err := NewTransferService(nil).Create(t.Context(), CreateTransferRequest{
+	_, err := NewTransferService(nil).Create(t.Context(), &CreateTransferRequest{
 		FromAccountID: "account-1",
 		ToAccountID:   "account-1",
 		AmountMinor:   25_000,
@@ -48,7 +50,7 @@ func TestTransferServiceCreateRejectsSameAccount(t *testing.T) {
 
 func TestTransferServiceCreatePersistsTransactionsAsBatch(t *testing.T) {
 	repo := &batchTransactionRepo{}
-	got, err := NewTransferService(NewTransactionService(repo)).Create(t.Context(), CreateTransferRequest{
+	got, err := NewTransferService(NewTransactionService(repo)).Create(t.Context(), &CreateTransferRequest{
 		FromAccountID: "account-1",
 		ToAccountID:   "account-2",
 		AmountMinor:   25_000,
@@ -68,6 +70,39 @@ func TestTransferServiceCreatePersistsTransactionsAsBatch(t *testing.T) {
 	}
 	if len(repo.batches[0]) != 2 {
 		t.Fatalf("batch size = %d, want 2", len(repo.batches[0]))
+	}
+}
+
+func TestTransferServiceCreateConvertsCrossCurrencyAmount(t *testing.T) {
+	repo := &batchTransactionRepo{}
+	service := NewTransferService(NewTransactionService(repo))
+	service.currency = NewCurrencyService(staticExchangeRateProvider{
+		rates: &ExchangeRates{
+			Base: "RUB",
+			Rates: map[string]decimal.Decimal{
+				"KRW": decimal.RequireFromString("16.25"),
+			},
+		},
+	})
+
+	got, err := service.Create(t.Context(), &CreateTransferRequest{
+		FromAccountID: "rub-account",
+		ToAccountID:   "krw-account",
+		FromCurrency:  "RUB",
+		ToCurrency:    "KRW",
+		AmountMinor:   1_000_000,
+	})
+	if err != nil {
+		t.Fatalf("create transfer: %v", err)
+	}
+	if got.Out.AmountMinor != 1_000_000 {
+		t.Fatalf("out amount = %d, want 1000000", got.Out.AmountMinor)
+	}
+	if got.In.AmountMinor != 16_250_000 {
+		t.Fatalf("in amount = %d, want 16250000", got.In.AmountMinor)
+	}
+	if got.ExchangeRate != "16.25" {
+		t.Fatalf("exchange rate = %s, want 16.25", got.ExchangeRate)
 	}
 }
 
@@ -153,7 +188,7 @@ func TestTransferServiceCreateReturnsValidationError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			service := NewTransferService(NewTransactionService())
 
-			_, err := service.Create(context.Background(), tt.req)
+			_, err := service.Create(context.Background(), &tt.req)
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -170,7 +205,7 @@ func TestTransferServiceCreateDoesNotClassifyRepositoryErrorAsValidation(t *test
 	txService := NewTransactionService(failingTransactionRepo{err: repoErr})
 	service := NewTransferService(txService)
 
-	_, err := service.Create(context.Background(), CreateTransferRequest{
+	_, err := service.Create(context.Background(), &CreateTransferRequest{
 		FromAccountID: "account-1",
 		ToAccountID:   "account-2",
 		AmountMinor:   100,

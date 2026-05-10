@@ -179,3 +179,18 @@ func (h *Handler) ensureAccountExists(w http.ResponseWriter, r *http.Request, ac
 
 	return true
 }
+
+func (h *Handler) accountByID(w http.ResponseWriter, r *http.Request, accountID, field string) (*models.Account, bool) {
+	if strings.TrimSpace(accountID) == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", field+" is required", nil)
+		return nil, false
+	}
+
+	account, err := h.store.Accounts().GetByID(r.Context(), accountID)
+	if err != nil {
+		writeServiceError(w, err)
+		return nil, false
+	}
+
+	return account, true
+}

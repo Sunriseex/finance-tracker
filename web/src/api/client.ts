@@ -6,6 +6,7 @@ import type {
   DashboardCashflow,
   DashboardInterestIncome,
   DashboardSummary,
+  CurrencyRateTable,
   InterestRule,
   Transaction,
   TransactionType,
@@ -64,7 +65,12 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${getStoredApiBase()}${path}`, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(`${getStoredApiBase()}${path}`, { ...init, headers });
+  } catch (err) {
+    throw new ApiClientError(err instanceof Error ? err.message : "API request failed", 0, "network_error");
+  }
   if (response.status === 204) {
     return undefined as T;
   }
@@ -82,6 +88,7 @@ export const api = {
   dashboardSummary: () => apiFetch<DashboardSummary>("/dashboard/summary"),
   dashboardCashflow: () => apiFetch<DashboardCashflow>("/dashboard/cashflow?months=6"),
   dashboardInterestIncome: () => apiFetch<DashboardInterestIncome>("/dashboard/interest-income?months=6"),
+  currencyRates: (base = "RUB") => apiFetch<CurrencyRateTable>(`/currency-rates?base=${encodeURIComponent(base)}`),
   accounts: () => apiFetch<Account[]>("/accounts"),
   account: (id: string) => apiFetch<Account>(`/accounts/${id}`),
   accountBalance: (id: string) => apiFetch<AccountBalance>(`/accounts/${id}/balance`),
@@ -108,7 +115,7 @@ export const api = {
   deleteTransaction: (id: string) =>
     apiFetch<void>(`/transactions/${id}`, { method: "DELETE" }),
   createTransfer: (input: { from_account_id: string; to_account_id: string; amount_minor: number; description: string }) =>
-    apiFetch<{ out: Transaction; in: Transaction }>("/transfers", { method: "POST", body: JSON.stringify(input) }),
+    apiFetch<{ out: Transaction; in: Transaction; exchange_rate: string }>("/transfers", { method: "POST", body: JSON.stringify(input) }),
   createInterestRule: (
     accountId: string,
     input: {

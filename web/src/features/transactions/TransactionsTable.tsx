@@ -26,6 +26,7 @@ export function TransactionsTable({
     onSuccess: () => invalidateMoney(queryClient),
   });
   const accountNames = new Map(accounts.map((account) => [account.id, account.name]));
+  const accountCurrencies = new Map(accounts.map((account) => [account.id, account.currency]));
   const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
 
   if (!transactions.length) {
@@ -47,7 +48,9 @@ export function TransactionsTable({
               {compact ? null : <td>{accountNames.get(transaction.account_id) ?? transaction.account_id.slice(0, 8)}</td>}
               {compact ? null : <td>{transaction.category_id ? categoryNames.get(transaction.category_id) ?? transaction.category_id.slice(0, 8) : "-"}</td>}
               <td>{transaction.description || "-"}</td>
-              <td className={signedAmount(transaction) < 0 ? "amount danger" : "amount"}>{formatMoney(signedAmount(transaction))}</td>
+              <td className={signedAmount(transaction) < 0 ? "amount danger" : "amount"}>
+                {formatMoney(signedAmount(transaction), accountCurrencies.get(transaction.account_id) ?? "RUB")}
+              </td>
               {allowDelete ? (
                 <td>
                   <IconButton
@@ -74,4 +77,3 @@ export function TransactionsTable({
 function isTransferTransaction(transaction: Transaction) {
   return transaction.type === "transfer_in" || transaction.type === "transfer_out";
 }
-

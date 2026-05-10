@@ -8,6 +8,7 @@ security:
   - bearerAuth: []
 tags:
   - name: Categories
+  - name: Currencies
   - name: Accounts
   - name: Transactions
   - name: Transfers
@@ -27,6 +28,27 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Category"
+        default:
+          $ref: "#/components/responses/APIError"
+  /currency-rates:
+    get:
+      tags: [Currencies]
+      summary: Latest exchange rates for a base currency
+      parameters:
+        - name: base
+          in: query
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 3
+            default: RUB
+      responses:
+        "200":
+          description: Exchange rates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrencyRateTable"
         default:
           $ref: "#/components/responses/APIError"
   /accounts:
@@ -629,12 +651,33 @@ components:
           type: string
     TransferResponse:
       type: object
-      required: [out, in]
+      required: [out, in, exchange_rate]
       properties:
         out:
           $ref: "#/components/schemas/Transaction"
         in:
           $ref: "#/components/schemas/Transaction"
+        exchange_rate:
+          type: string
+          description: Rate used to convert out amount into in amount.
+    CurrencyRateTable:
+      type: object
+      required: [base, date, provider, fetched_at, rates]
+      properties:
+        base:
+          type: string
+        date:
+          type: string
+        provider:
+          type: string
+        fetched_at:
+          type: string
+          format: date-time
+        rates:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
     InterestRule:
       type: object
       required:

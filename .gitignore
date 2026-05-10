@@ -32,3 +32,6 @@ web/.env.*.local
 # WebUI
 web/node_modules/
 web/dist/
+
+# Local design research
+.lazyweb/
