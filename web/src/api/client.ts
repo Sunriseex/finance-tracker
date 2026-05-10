@@ -114,9 +114,9 @@ async function apiFetchWithAuth<T>(path: string, init: RequestInit = {}, allowRe
 }
 
 async function authFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
+	const headers = new Headers(init.headers);
+	if (init.body && !headers.has("Content-Type")) {
+		headers.set("Content-Type", "application/json");
   }
 
   let response: Response;
@@ -125,16 +125,20 @@ async function authFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   } catch (err) {
     throw new ApiClientError(err instanceof Error ? err.message : "API request failed", 0, "network_error");
   }
-  if (response.status === 204) {
-    return undefined as T;
-  }
+	if (response.status === 204) {
+		return undefined as T;
+	}
 
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const err = payload?.error;
-    throw new ApiClientError(err?.message ?? response.statusText, response.status, err?.code);
-  }
-  return payload as T;
+	const contentType = response.headers.get("Content-Type") ?? "";
+	const payload = contentType.includes("application/json") ? await response.json().catch(() => null) : null;
+	if (!response.ok) {
+		const err = payload?.error;
+		throw new ApiClientError(err?.message ?? response.statusText, response.status, err?.code);
+	}
+	if (payload == null) {
+		throw new ApiClientError("Invalid API response", response.status, "invalid_response");
+	}
+	return payload as T;
 }
 
 type AuthResponse = {
