@@ -25,6 +25,26 @@ export function CreateAccountForm({ onDone }: { onDone: () => void }) {
   });
   const mutation = useMutation({
     mutationFn: async () => {
+      const initial = parseMoneyToMinor(form.initial);
+      const rate = Number(form.rate.replace(",", "."));
+      const promoRate = Number(form.promoRate.replace(",", "."));
+
+      if (Number.isNaN(rate) || rate < 0) {
+        throw new Error("Annual rate must be a non-negative number");
+      }
+
+      if (Number.isNaN(promoRate) || promoRate < 0) {
+        throw new Error("Promo rate must be a non-negative number");
+      }
+
+      if (rate <= 0 && (promoRate > 0 || form.promoEndDate)) {
+        throw new Error("Annual rate is required when promo fields are set");
+      }
+
+      if (rate > 0 && ((promoRate > 0 && !form.promoEndDate) || (promoRate <= 0 && form.promoEndDate))) {
+        throw new Error("Promo rate and promo end date must be set together");
+      }
+
       const account = await api.createAccount({
         name: form.name,
         bank: form.bank,
@@ -32,7 +52,7 @@ export function CreateAccountForm({ onDone }: { onDone: () => void }) {
         currency: form.currency,
         opened_at: form.opened_at,
       });
-      const initial = parseMoneyToMinor(form.initial);
+
       if (initial > 0) {
         await api.createTransaction({
           account_id: account.id,
@@ -42,22 +62,19 @@ export function CreateAccountForm({ onDone }: { onDone: () => void }) {
           occurred_at: form.opened_at,
         });
       }
-      const rate = Number(form.rate.replace(",", "."));
+
       if (rate > 0) {
-        const promoRate = Number(form.promoRate.replace(",", "."));
-        if ((promoRate > 0 && !form.promoEndDate) || (promoRate <= 0 && form.promoEndDate)) {
-          throw new Error("Promo rate and promo end date must be set together");
-        }
         await api.createInterestRule(account.id, {
           annual_rate_bps: Math.round(rate * 100),
           promo_rate_bps: promoRate > 0 ? Math.round(promoRate * 100) : null,
-          promo_end_date: promoRate > 0 ? form.promoEndDate || null : null,
+          promo_end_date: promoRate > 0 ? form.promoEndDate : null,
           accrual_frequency: "daily",
           capitalization_frequency: form.capitalization as "none" | "daily" | "monthly" | "end_of_term",
           day_count_convention: "actual_365",
           start_date: form.opened_at,
         });
       }
+
       return account;
     },
     onSuccess: () => {

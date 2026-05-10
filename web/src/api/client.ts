@@ -65,7 +65,12 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${getStoredApiBase()}${path}`, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(`${getStoredApiBase()}${path}`, { ...init, headers });
+  } catch (err) {
+    throw new ApiClientError(err instanceof Error ? err.message : "API request failed", 0, "network_error");
+  }
   if (response.status === 204) {
     return undefined as T;
   }

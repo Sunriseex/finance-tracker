@@ -26,16 +26,10 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
   const cashflow = useQuery({ queryKey: ["dashboard", "cashflow"], queryFn: api.dashboardCashflow });
   const interest = useQuery({ queryKey: ["dashboard", "interest"], queryFn: api.dashboardInterestIncome });
   const [selectedCurrency, setSelectedCurrency] = useState(() => localStorage.getItem(primaryCurrencyKey) ?? "RUB");
-  const rates = useQuery({
-    queryKey: ["currency-rates", selectedCurrency],
-    queryFn: () => api.currencyRates(selectedCurrency),
-    staleTime: 1000 * 60 * 60,
-  });
   const data = summary.data;
+
   const balances = data?.account_balances ?? [];
   const currencyTotals = data?.balances ?? [];
-  const rateTable = rates.data;
-  const portfolioValue = sumConverted(currencyTotals, selectedCurrency, rateTable);
   const seenCurrencies = new Set<string>([selectedCurrency]);
   for (const amount of currencyTotals) {
     seenCurrencies.add(amount.currency);
@@ -44,10 +38,19 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
     seenCurrencies.add(account.currency);
   }
   const currencies = [...seenCurrencies].sort();
-
-  useEffect(() => {
-    localStorage.setItem(primaryCurrencyKey, selectedCurrency);
-  }, [selectedCurrency]);
+  const rates = useQuery({
+    queryKey: ["currency-rates", selectedCurrency],
+    queryFn: () => api.currencyRates(selectedCurrency),
+    enabled: Boolean(selectedCurrency),
+    staleTime: 1000 * 60 * 60,
+  });
+  const rateTable = rates.data?.base === selectedCurrency ? rates.data : undefined;
+  const portfolioValue = sumConverted(currencyTotals, selectedCurrency, rateTable);
+  const conversionStatus = rates.error
+    ? errorMessage(rates.error)
+    : rateTable
+      ? `${rateTable.provider}, ${rateTable.date}`
+      : "Loading rates";
 
   const chartData = (cashflow.data?.buckets ?? []).map((bucket) => ({
     period: bucket.period,
@@ -55,10 +58,12 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
     expense: sumConverted(bucket.expense, selectedCurrency, rateTable),
     net: sumConverted(bucket.net_cashflow, selectedCurrency, rateTable),
   }));
+
   const interestData = (interest.data?.buckets ?? []).map((bucket) => ({
     period: bucket.period,
     interest: sumConverted(bucket.interest_income, selectedCurrency, rateTable),
   }));
+
   const allocation = balances
     .filter((account) => account.balance_minor > 0)
     .map((account) => ({
@@ -71,7 +76,9 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
       ...account,
       share: portfolioValue > 0 ? Math.round((account.converted_balance_minor / portfolioValue) * 100) : 0,
     }));
-  const monthlyNet = sumConverted(data?.monthly_income, selectedCurrency, rateTable) -
+
+  const monthlyNet =
+    sumConverted(data?.monthly_income, selectedCurrency, rateTable) -
     sumConverted(data?.monthly_expense, selectedCurrency, rateTable);
   const recentAccounts = balances.map((account): Account => ({
     id: account.account_id,
@@ -85,9 +92,14 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
     updated_at: "",
   }));
 
+  useEffect(() => {
+    localStorage.setItem(primaryCurrencyKey, selectedCurrency);
+  }, [selectedCurrency]);
+
   if (summary.isLoading) {
     return <Empty>Loading dashboard</Empty>;
   }
+
   if (summary.error) {
     return <Empty>{errorMessage(summary.error)}</Empty>;
   }
@@ -100,8 +112,11 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
           <div className="hero-totals">
             <strong>{formatMoney(portfolioValue, selectedCurrency)}</strong>
           </div>
-          <span>{data?.active_accounts_count ?? 0} active accounts across {currencies.length || 1} currency</span>
+          <span>
+            {data?.active_accounts_count ?? 0} active accounts across {currencies.length || 1} currency
+          </span>
         </div>
+
         <div className={monthlyNet < 0 ? "hero-delta negative" : "hero-delta"}>
           <span>Net this month</span>
           <strong>{formatMoney(monthlyNet, selectedCurrency)}</strong>
@@ -124,8 +139,9 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
         <div className="metric primary-metric">
           <span>Main currency</span>
           <strong>{selectedCurrency}</strong>
-          <small>{rateTable ? `${rateTable.provider}, ${rateTable.date}` : "Loading rates"}</small>
+          <small>{conversionStatus}</small>
         </div>
+
         {currencyTotals.map((amount) => (
           <div className="metric" key={amount.currency}>
             <span>Total {amount.currency}</span>
@@ -135,18 +151,24 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
             ) : null}
           </div>
         ))}
+
         <div className="metric">
           <span>Accounts</span>
-          <strong>{data?.active_accounts_count ?? 0}/{data?.accounts_count ?? 0}</strong>
+          <strong>
+            {data?.active_accounts_count ?? 0}/{data?.accounts_count ?? 0}
+          </strong>
         </div>
+
         <div className="metric">
           <span>Income this month</span>
           <strong>{formatMoney(sumConverted(data?.monthly_income, selectedCurrency, rateTable), selectedCurrency)}</strong>
         </div>
+
         <div className="metric">
           <span>Expense this month</span>
           <strong>{formatMoney(sumConverted(data?.monthly_expense, selectedCurrency, rateTable), selectedCurrency)}</strong>
         </div>
+
         <div className="metric">
           <span>Interest this month</span>
           <strong>{formatMoney(sumConverted(data?.monthly_interest_income, selectedCurrency, rateTable), selectedCurrency)}</strong>
@@ -163,15 +185,36 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
                   <stop offset="95%" stopColor="#315f8d" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
+
               <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
               <XAxis dataKey="period" axisLine={false} tickLine={false} />
-              <YAxis axisLine={false} tickLine={false} width={70} tickFormatter={(value) => formatCompactMoney(Number(value))} />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                width={70}
+                tickFormatter={(value) => formatCompactMoney(Number(value))}
+              />
               <Tooltip formatter={(value) => formatMoney(Number(value), selectedCurrency)} />
               <Legend />
-              <Area type="monotone" dataKey="net" name="Net" stroke="#315f8d" fill="url(#netFlow)" strokeWidth={2} />
+
+              <Area
+                type="monotone"
+                dataKey="net"
+                name="Net"
+                stroke="#315f8d"
+                fill="url(#netFlow)"
+                strokeWidth={2}
+              />
               <Bar dataKey="income" name="Income" fill="#24735a" radius={[4, 4, 0, 0]} />
               <Bar dataKey="expense" name="Expense" fill="#a23b3b" radius={[4, 4, 0, 0]} />
-              <Line type="monotone" dataKey="net" name="Net line" stroke="#1f2937" strokeWidth={2} dot={false} />
+              <Line
+                type="monotone"
+                dataKey="net"
+                name="Net line"
+                stroke="#1f2937"
+                strokeWidth={2}
+                dot={false}
+              />
             </ComposedChart>
           </ChartShell>
         </Panel>
@@ -179,19 +222,33 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
         <Panel title="Allocation">
           <div className="allocation-list">
             {allocation.map((account) => (
-              <button className="allocation-row" key={account.account_id} onClick={() => onOpenAccount(account.account_id)}>
+              <button
+                className="allocation-row"
+                key={account.account_id}
+                onClick={() => onOpenAccount(account.account_id)}
+              >
                 <span>
                   <strong>{account.name}</strong>
                   <small>{account.bank || account.type}</small>
                 </span>
-                <span className="allocation-value">{formatMoney(account.balance_minor, account.currency)}</span>
+
+                <span className="allocation-value">
+                  {formatMoney(account.balance_minor, account.currency)}
+                </span>
                 {account.currency !== selectedCurrency ? (
-                  <small className="allocation-converted">{formatMoney(account.converted_balance_minor, selectedCurrency)}</small>
+                  <small className="allocation-converted">
+                    {formatMoney(account.converted_balance_minor, selectedCurrency)}
+                  </small>
                 ) : null}
-                <span className="allocation-bar"><i style={{ width: `${account.share}%` }} /></span>
+
+                <span className="allocation-bar">
+                  <i style={{ width: `${account.share}%` }} />
+                </span>
+
                 <em>{account.share}%</em>
               </button>
             ))}
+
             {!allocation.length ? <Empty>No positive balances</Empty> : null}
           </div>
         </Panel>
@@ -202,7 +259,12 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
           <ComposedChart data={chartData} margin={{ top: 8, right: 14, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
             <XAxis dataKey="period" axisLine={false} tickLine={false} />
-            <YAxis axisLine={false} tickLine={false} width={70} tickFormatter={(value) => formatCompactMoney(Number(value))} />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              width={70}
+              tickFormatter={(value) => formatCompactMoney(Number(value))}
+            />
             <Tooltip formatter={(value) => formatMoney(Number(value), selectedCurrency)} />
             <Bar dataKey="income" fill="#24735a" radius={[4, 4, 0, 0]} />
             <Bar dataKey="expense" fill="#a23b3b" radius={[4, 4, 0, 0]} />
@@ -215,9 +277,21 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
           <LineChart data={interestData} margin={{ top: 8, right: 14, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
             <XAxis dataKey="period" axisLine={false} tickLine={false} />
-            <YAxis axisLine={false} tickLine={false} width={70} tickFormatter={(value) => formatCompactMoney(Number(value))} />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              width={70}
+              tickFormatter={(value) => formatCompactMoney(Number(value))}
+            />
             <Tooltip formatter={(value) => formatMoney(Number(value), selectedCurrency)} />
-            <Line type="monotone" dataKey="interest" stroke="#8a6f2a" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+            <Line
+              type="monotone"
+              dataKey="interest"
+              stroke="#8a6f2a"
+              strokeWidth={3}
+              dot={{ r: 3 }}
+              activeDot={{ r: 5 }}
+            />
           </LineChart>
         </ChartShell>
       </Panel>
@@ -234,7 +308,12 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
                   <td className="amount stacked-amount">
                     <strong>{formatMoney(account.balance_minor, account.currency)}</strong>
                     {account.currency !== selectedCurrency ? (
-                      <small>{formatMoney(convertMinor(account.balance_minor, account.currency, selectedCurrency, rateTable), selectedCurrency)}</small>
+                      <small>
+                        {formatMoney(
+                          convertMinor(account.balance_minor, account.currency, selectedCurrency, rateTable),
+                          selectedCurrency,
+                        )}
+                      </small>
                     ) : null}
                   </td>
                 </tr>
@@ -253,11 +332,14 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
 
 function formatCompactMoney(value: number) {
   const abs = Math.abs(value);
+
   if (abs >= 1_000_000) {
     return `${Math.round(value / 1_000_000)}M`;
   }
+
   if (abs >= 1_000) {
     return `${Math.round(value / 1_000)}K`;
   }
+
   return `${value}`;
 }

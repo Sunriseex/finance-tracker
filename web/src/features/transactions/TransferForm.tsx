@@ -24,8 +24,10 @@ export function TransferForm({ accounts, onDone }: { accounts: Account[]; onDone
     enabled: Boolean(fromAccount?.currency && toAccount?.currency && fromAccount.currency !== toAccount.currency),
     staleTime: 1000 * 60 * 60,
   });
+  const needsConversion = Boolean(fromAccount && toAccount && fromAccount.currency !== toAccount.currency);
   const rate = toAccount?.currency ? rates.data?.rates[toAccount.currency] : undefined;
   const convertedMinor = amountMinor > 0 && rate ? Math.round(amountMinor * rate) : 0;
+  const cannotConvert = needsConversion && (!rate || rates.isLoading || Boolean(rates.error));
   const mutation = useMutation({
     mutationFn: () => api.createTransfer({
       from_account_id: form.from_account_id,
@@ -45,7 +47,7 @@ export function TransferForm({ accounts, onDone }: { accounts: Account[]; onDone
       <Field label="From"><Select value={form.from_account_id} onChange={(event) => setForm({ ...form, from_account_id: event.target.value })}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</Select></Field>
       <Field label="To"><Select value={form.to_account_id} onChange={(event) => setForm({ ...form, to_account_id: event.target.value })}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</Select></Field>
       <Field label="Amount"><Input required inputMode="decimal" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} /></Field>
-      {fromAccount && toAccount && fromAccount.currency !== toAccount.currency ? (
+      {needsConversion && fromAccount && toAccount ? (
         <div className="conversion-preview">
           <span>{fromAccount.currency} to {toAccount.currency}</span>
           {rates.isLoading ? <strong>Loading rate</strong> : null}
@@ -58,7 +60,7 @@ export function TransferForm({ accounts, onDone }: { accounts: Account[]; onDone
         </div>
       ) : null}
       <Field label="Description"><Input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
-      <Button disabled={mutation.isPending}>Create</Button>
+      <Button disabled={mutation.isPending || cannotConvert}>Create</Button>
     </FormShell>
   );
 }
