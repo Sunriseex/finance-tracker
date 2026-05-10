@@ -551,48 +551,51 @@ internal/domain
 
 ## Security Requirements
 
-* [ ] Регистрация пользователя при первом заходе в сервис.
-* [ ] После первого пользователя закрыть публичную регистрацию или требовать admin invite/setup token.
-* [ ] Хешировать пароль через `argon2id`.
-* [ ] Не хранить plaintext password, reset tokens или JWT secrets в репозитории.
-* [ ] Использовать access JWT с коротким TTL.
-* [ ] Использовать refresh token с rotation и server-side revocation.
-* [ ] Хранить refresh token безопасно: httpOnly cookie или hashed token в БД.
-* [ ] Добавить logout с отзывом refresh token.
+* [x] Регистрация пользователя при первом заходе в сервис.
+* [x] После первого пользователя закрыть публичную регистрацию или требовать admin invite/setup token.
+* [x] Хешировать пароль через `argon2id`.
+* [x] Не хранить plaintext password, reset tokens или JWT secrets в репозитории.
+* [x] Использовать access JWT с коротким TTL.
+* [x] Использовать refresh token с rotation и server-side revocation.
+* [x] Хранить refresh token безопасно: httpOnly cookie или hashed token в БД.
+* [x] Добавить logout с отзывом refresh token.
 * [ ] Добавить защиту от brute force:
 
-  * [ ] rate limit на login/register
-  * [ ] одинаковые сообщения для неверного email/password
+  * [x] rate limit на login/register
+  * [x] одинаковые сообщения для неверного email/password
   * [ ] audit log для auth-событий
 * [ ] Продумать CSRF модель, если refresh хранится в cookie.
-* [ ] Не отдавать чувствительные auth-ошибки в UI.
+* [x] Не отдавать чувствительные auth-ошибки в UI.
 
 ## Backend
 
-* [ ] Таблица пользователей.
-* [ ] Таблица refresh sessions/tokens.
-* [ ] `POST /auth/setup` для первого пользователя.
-* [ ] `POST /auth/login`.
-* [ ] `POST /auth/refresh`.
-* [ ] `POST /auth/logout`.
-* [ ] Middleware auth через JWT claims.
+* [x] Таблица пользователей.
+* [x] Таблица refresh sessions/tokens.
+* [x] `POST /auth/setup` для первого пользователя.
+* [x] `POST /auth/login`.
+* [x] `POST /auth/refresh`.
+* [x] `POST /auth/logout`.
+* [x] Middleware auth через JWT claims.
+* [x] Основная валюта пользователя хранится в профиле.
 * [ ] Привязать пользовательские данные к owner/user id до multi-user сценариев.
 
 ## Frontend
 
-* [ ] Первый экран setup/register, если пользователей нет.
-* [ ] Login screen.
-* [ ] Session bootstrap при открытии приложения.
-* [ ] Авто-refresh access token.
-* [ ] Ясные, но безопасные сообщения об ошибках входа.
+* [x] Первый экран setup/register, если пользователей нет.
+* [x] Login screen.
+* [x] Session bootstrap при открытии приложения.
+* [x] Авто-refresh access token.
+* [x] Выбор основной валюты при setup/register.
+* [x] Настройка основной валюты в Settings.
+* [x] Ясные, но безопасные сообщения об ошибках входа.
 
 ## Acceptance Criteria
 
-* [ ] Новый пользователь может настроить сервис при первом запуске.
-* [ ] После setup dashboard доступен только после login.
-* [ ] Пароли хранятся только как Argon2id hash.
-* [ ] JWT нельзя использовать после logout/refresh rotation revoke.
-* [ ] Auth покрыт unit и handler tests.
+* [x] Новый пользователь может настроить сервис при первом запуске.
+* [x] После setup dashboard доступен только после login.
+* [x] Пароли хранятся только как Argon2id hash.
+* [x] JWT нельзя использовать после logout/refresh rotation revoke.
+* [x] Auth покрыт unit и handler tests.
 
 ---
 

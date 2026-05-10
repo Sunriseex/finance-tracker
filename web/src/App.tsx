@@ -1,33 +1,42 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Landmark, Moon, Plus, Settings, Sun, Wallet } from "lucide-react";
-import { api, getStoredApiBase, getStoredToken, setStoredApiBase, setStoredToken } from "./api/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Landmark, LogOut, Moon, Plus, Settings, Sun, Wallet } from "lucide-react";
+import { ApiClientError, api, getStoredApiBase, getStoredToken, setStoredApiBase } from "./api/client";
 import { AccountDetails } from "./features/accounts/AccountDetails";
 import { AccountsView } from "./features/accounts/AccountsView";
 import { CreateAccountForm } from "./features/accounts/CreateAccountForm";
 import { DashboardView } from "./features/dashboard/DashboardView";
+import { SettingsView } from "./features/settings/SettingsView";
 import { TransactionForm } from "./features/transactions/TransactionForm";
 import { TransactionsView } from "./features/transactions/TransactionsView";
 import { TransferForm } from "./features/transactions/TransferForm";
 import type { QuickAction, Theme, View } from "./shared/constants";
 import { themeStorageKey } from "./shared/constants";
-import { Button, Field, IconButton, Input } from "./shared/ui";
+import { currencyOptions } from "./shared/currencies";
+import { Button, Field, IconButton, Input, Select } from "./shared/ui";
 
 export function App() {
+  const [hasSession, setHasSession] = useState(() => Boolean(getStoredToken()));
   const [view, setView] = useState<View>("dashboard");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [quickAction, setQuickAction] = useState<QuickAction>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => storedTheme());
-  const accounts = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
-  const categories = useQuery({ queryKey: ["categories"], queryFn: api.categories });
+  const accounts = useQuery({ queryKey: ["accounts"], queryFn: api.accounts, enabled: hasSession });
+  const categories = useQuery({ queryKey: ["categories"], queryFn: api.categories, enabled: hasSession });
+  const profile = useQuery({ queryKey: ["profile"], queryFn: api.profile, enabled: hasSession });
 
   const selectedAccount = accounts.data?.find((account) => account.id === selectedAccountId);
+  const primaryCurrency = profile.data?.user.primary_currency ?? "RUB";
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(themeStorageKey, theme);
   }, [theme]);
+
+  if (!hasSession) {
+    return <AuthScreen onAuthenticated={() => setHasSession(true)} theme={theme} setTheme={setTheme} />;
+  }
 
   return (
     <div className="app">
@@ -46,11 +55,14 @@ export function App() {
           <button className={view === "transactions" ? "active" : ""} onClick={() => setView("transactions")}>
             <ArrowRightLeft size={16} /> Transactions
           </button>
+          <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
+            <Settings size={16} /> Settings
+          </button>
         </nav>
         <Button className="muted-button" onClick={() => setAuthOpen((open) => !open)}>
-          <Settings size={16} /> API
+          <Settings size={16} /> Session
         </Button>
-        {authOpen ? <AuthPanel /> : null}
+        {authOpen ? <SessionPanel onLogout={() => setHasSession(false)} /> : null}
       </aside>
 
       <main>
@@ -81,7 +93,7 @@ export function App() {
           </div>
         </header>
 
-        {view === "dashboard" ? <DashboardView onOpenAccount={(id) => { setSelectedAccountId(id); setView("accounts"); }} /> : null}
+        {view === "dashboard" ? <DashboardView key={primaryCurrency} primaryCurrency={primaryCurrency} onOpenAccount={(id) => { setSelectedAccountId(id); setView("accounts"); }} /> : null}
         {view === "accounts" ? (
           selectedAccount ? (
             <AccountDetails account={selectedAccount} onBack={() => setSelectedAccountId("")} />
@@ -92,6 +104,7 @@ export function App() {
         {view === "transactions" ? (
           <TransactionsView accounts={accounts.data ?? []} categories={categories.data ?? []} />
         ) : null}
+        {view === "settings" ? <SettingsView profile={profile.data} /> : null}
       </main>
 
       {quickAction ? (
@@ -116,21 +129,125 @@ export function App() {
   );
 }
 
-function AuthPanel() {
-  const [token, setToken] = useState(getStoredToken());
+function AuthScreen({
+  onAuthenticated,
+  theme,
+  setTheme,
+}: {
+  onAuthenticated: () => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+}) {
+  const status = useQuery({ queryKey: ["auth-status"], queryFn: api.authStatus, retry: false });
+  const [mode, setMode] = useState<"setup" | "login">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [primaryCurrency, setPrimaryCurrency] = useState("RUB");
+  const [apiBase, setApiBase] = useState(getStoredApiBase());
+  const [error, setError] = useState("");
+  const setupRequired = status.data?.setup_required;
+  const activeMode = setupRequired ? "setup" : mode;
+
+  async function submit() {
+    setError("");
+    setStoredApiBase(apiBase);
+    try {
+      if (activeMode === "setup") {
+        await api.setup({ email, password, primary_currency: primaryCurrency });
+      } else {
+        await api.login({ email, password });
+      }
+      onAuthenticated();
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  return (
+    <div className="auth-page">
+      <form className="auth-card" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <div className="auth-card-header">
+          <div className="brand auth-brand">
+            <Wallet size={22} />
+            <span>CapitalFlow</span>
+          </div>
+          <IconButton
+            title={theme === "dark" ? "Light theme" : "Dark theme"}
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            type="button"
+          >
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </IconButton>
+        </div>
+        {setupRequired === false ? (
+          <div className="segmented">
+            <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>
+              Login
+            </button>
+            <button type="button" className={mode === "setup" ? "active" : ""} onClick={() => setMode("setup")}>
+              Setup
+            </button>
+          </div>
+        ) : null}
+        <Field label="API base">
+          <Input value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
+        </Field>
+        <Field label="Email">
+          <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+        </Field>
+        <Field label="Password">
+          <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={activeMode === "setup" ? "new-password" : "current-password"} />
+        </Field>
+        {activeMode === "setup" ? (
+          <Field label="Primary currency">
+            <Select value={primaryCurrency} onChange={(event) => setPrimaryCurrency(event.target.value)}>
+              {currencyOptions().map((currency) => (
+                <option key={currency.code} value={currency.code}>{currency.label}</option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+        {error ? <div className="error">{error}</div> : null}
+        <Button disabled={status.isLoading}>{activeMode === "setup" ? "Create user" : "Login"}</Button>
+      </form>
+    </div>
+  );
+}
+
+function SessionPanel({ onLogout }: { onLogout: () => void }) {
+  const queryClient = useQueryClient();
   const [apiBase, setApiBase] = useState(getStoredApiBase());
 
   return (
-    <form className="auth-panel" onSubmit={(event) => { event.preventDefault(); setStoredToken(token); setStoredApiBase(apiBase); location.reload(); }}>
+    <form className="auth-panel" onSubmit={(event) => { event.preventDefault(); setStoredApiBase(apiBase); location.reload(); }}>
       <Field label="API base">
         <Input value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
       </Field>
-      <Field label="Bearer token">
-        <Input type="password" value={token} onChange={(event) => setToken(event.target.value)} />
-      </Field>
       <Button>Save</Button>
+      <Button
+        className="muted-button"
+        type="button"
+        onClick={() => {
+          void api.logout().finally(() => {
+            queryClient.clear();
+            onLogout();
+          });
+        }}
+      >
+        <LogOut size={16} /> Logout
+      </Button>
     </form>
   );
+}
+
+function errorText(err: unknown) {
+  if (err instanceof ApiClientError) {
+    return err.message;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return "Request failed";
 }
 
 function titleForView(view: View) {
@@ -138,6 +255,7 @@ function titleForView(view: View) {
     dashboard: "Dashboard",
     accounts: "Accounts",
     transactions: "Transactions",
+    settings: "Settings",
   }[view];
 }
 

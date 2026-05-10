@@ -68,6 +68,16 @@ export type CurrencyRateTable = {
   rates: Record<string, number>;
 };
 
+export type AuthUser = {
+  id: string;
+  email: string;
+  primary_currency: string;
+};
+
+export type Profile = {
+  user: AuthUser;
+};
+
 export type DashboardAccountBalance = {
   account_id: string;
   name: string;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Area,
@@ -19,13 +19,11 @@ import { errorMessage } from "../../shared/api/query";
 import { ChartShell, Empty, Panel } from "../../shared/ui";
 import { TransactionsTable } from "../transactions/TransactionsTable";
 
-const primaryCurrencyKey = "capitalflow_primary_currency";
-
-export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) => void }) {
+export function DashboardView({ primaryCurrency, onOpenAccount }: { primaryCurrency: string; onOpenAccount: (id: string) => void }) {
   const summary = useQuery({ queryKey: ["dashboard", "summary"], queryFn: api.dashboardSummary });
   const cashflow = useQuery({ queryKey: ["dashboard", "cashflow"], queryFn: api.dashboardCashflow });
   const interest = useQuery({ queryKey: ["dashboard", "interest"], queryFn: api.dashboardInterestIncome });
-  const [selectedCurrency, setSelectedCurrency] = useState(() => localStorage.getItem(primaryCurrencyKey) ?? "RUB");
+  const [selectedCurrency, setSelectedCurrency] = useState(primaryCurrency);
   const data = summary.data;
 
   const balances = data?.account_balances ?? [];
@@ -91,10 +89,6 @@ export function DashboardView({ onOpenAccount }: { onOpenAccount: (id: string) =
     created_at: "",
     updated_at: "",
   }));
-
-  useEffect(() => {
-    localStorage.setItem(primaryCurrencyKey, selectedCurrency);
-  }, [selectedCurrency]);
 
   if (summary.isLoading) {
     return <Empty>Loading dashboard</Empty>;
