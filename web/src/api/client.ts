@@ -174,6 +174,11 @@ async function refreshSession() {
     .then(storeSession)
     .catch((err) => {
       clearStoredSession();
+
+      if (err instanceof ApiClientError) {
+        throw new ApiClientError("Login required", 401, "unauthorized");
+      }
+
       throw err;
     })
     .finally(() => {
