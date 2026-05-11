@@ -1135,6 +1135,87 @@ LLM должна получать примерно такой контекст:
 
 ---
 
+# v0.13 — WebUI Design Realisation
+
+## Цель
+
+Перенести конкретный roadmap из `DESIGN.md` в рабочий TODO для реализации Nordic WebUI, не меняя уже завершенную историю `v0.5`.
+
+## PR Roadmap
+
+### PR 1 — Web App Shell
+
+Branch:
+
+```text
+feature/web-app-shell
+```
+
+Scope:
+
+* [ ] AppShell.
+* [ ] Sidebar.
+* [ ] Topbar.
+* [ ] Page container.
+* [ ] Card component.
+* [ ] Button component.
+* [ ] CSS variables / design tokens.
+* [ ] Light Nordic theme.
+* [ ] Basic responsive behavior.
+
+### PR 2 — Dashboard Foundation
+
+Scope:
+
+* [ ] Net worth summary.
+* [ ] Metric cards.
+* [ ] Account cards.
+* [ ] Quick actions.
+* [ ] Recent transactions block.
+* [ ] Static chart placeholders.
+* [ ] Loading/empty/error states.
+
+### PR 3 — Transactions UX
+
+Scope:
+
+* [ ] Transaction list/table.
+* [ ] Search input.
+* [ ] Filter chips.
+* [ ] Status chips.
+* [ ] Mobile transaction layout.
+* [ ] Empty filtered state.
+
+### PR 4 — Transfers UX
+
+Scope:
+
+* [ ] Transfer form.
+* [ ] Account selectors.
+* [ ] Validation.
+* [ ] Review step.
+* [ ] Submit state.
+* [ ] Success/error feedback.
+
+### PR 5 — Savings / Deposits UX
+
+Scope:
+
+* [ ] Savings overview.
+* [ ] APY/rate display.
+* [ ] Earned interest.
+* [ ] Projected value chart.
+* [ ] Goal progress.
+* [ ] Deposit/withdraw actions.
+
+## Acceptance Criteria
+
+* [ ] TODO reflects `DESIGN.md` implementation priority.
+* [ ] Completed `v0.5` checklist stays unchanged.
+* [ ] New tasks are unchecked and ready for feature realisation.
+
+---
+
 # v1.0 — Personal CapitalFlow Core Release
 
 ## Цель
