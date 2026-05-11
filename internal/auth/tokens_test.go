@@ -26,7 +26,7 @@ func TestTokenServiceIssueAndValidateAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate access: %v", err)
 	}
-	if claims.UserID != "user-1" || claims.Email != "user@example.com" {
+	if claims.UserID != "user-1" || claims.Email != "user@example.com" || claims.SessionID != pair.RefreshTokenID {
 		t.Fatalf("unexpected claims: %#v", claims)
 	}
 }

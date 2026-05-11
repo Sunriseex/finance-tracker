@@ -17,8 +17,7 @@ func (h *Handler) listInterestRules(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
-		writeServiceError(w, err)
+	if !h.ensureAccountExists(w, r, accountID) {
 		return
 	}
 
@@ -58,8 +57,7 @@ func (h *Handler) createInterestRule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
-		writeServiceError(w, err)
+	if !h.ensureAccountExists(w, r, accountID) {
 		return
 	}
 
@@ -87,6 +85,11 @@ func (h *Handler) createInterestRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateInterestRule(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	ruleID, ok := routeUUIDParam(w, r, "id")
 	if !ok {
 		return
@@ -94,6 +97,10 @@ func (h *Handler) updateInterestRule(w http.ResponseWriter, r *http.Request) {
 
 	rule, err := h.store.InterestRules().GetByID(r.Context(), ruleID)
 	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if _, err := h.store.Accounts().GetByIDForUser(r.Context(), rule.AccountID, userID); err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -178,8 +185,16 @@ func (h *Handler) updateInterestRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	accountID, ok := routeUUIDParam(w, r, "id")
 	if !ok {
+		return
+	}
+	if !h.ensureAccountExists(w, r, accountID) {
 		return
 	}
 	var req dto.AccrueInterestRequest
@@ -205,7 +220,7 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	transactions, err := h.store.Transactions().ListByAccount(r.Context(), accountID)
+	transactions, err := h.store.Transactions().ListByAccountForUser(r.Context(), accountID, userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -282,8 +297,11 @@ func (h *Handler) recalculateInterest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		return
 	}
-	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
-		writeServiceError(w, err)
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+	if !h.ensureAccountExists(w, r, accountID) {
 		return
 	}
 
@@ -303,7 +321,7 @@ func (h *Handler) recalculateInterest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	transactions, err := h.store.Transactions().ListByAccount(r.Context(), accountID)
+	transactions, err := h.store.Transactions().ListByAccountForUser(r.Context(), accountID, userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return

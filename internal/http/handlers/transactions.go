@@ -12,6 +12,11 @@ import (
 )
 
 func (h *Handler) listTransactions(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	filter, ok := parseTransactionListFilter(w, r)
 	if !ok {
 		return
@@ -22,9 +27,9 @@ func (h *Handler) listTransactions(w http.ResponseWriter, r *http.Request) {
 		err          error
 	)
 	if filter.AccountID == "" {
-		transactions, err = h.store.Transactions().List(r.Context())
+		transactions, err = h.store.Transactions().ListByUser(r.Context(), userID)
 	} else {
-		transactions, err = h.store.Transactions().ListByAccount(r.Context(), filter.AccountID)
+		transactions, err = h.store.Transactions().ListByAccountForUser(r.Context(), filter.AccountID, userID)
 	}
 	if err != nil {
 		writeServiceError(w, err)
@@ -163,6 +168,10 @@ func applyTransactionListFilter(transactions []models.Transaction, filter *trans
 }
 
 func (h *Handler) createTransaction(w http.ResponseWriter, r *http.Request) {
+	if _, ok := currentUserID(w, r); !ok {
+		return
+	}
+
 	var req dto.CreateTransactionRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body", nil)
@@ -239,12 +248,17 @@ func (h *Handler) createTransaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getTransaction(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	transactionID, ok := routeUUIDParam(w, r, "id")
 	if !ok {
 		return
 	}
 
-	transaction, err := h.store.Transactions().GetByID(r.Context(), transactionID)
+	transaction, err := h.store.Transactions().GetByIDForUser(r.Context(), transactionID, userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -254,12 +268,17 @@ func (h *Handler) getTransaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteTransaction(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	transactionID, ok := routeUUIDParam(w, r, "id")
 	if !ok {
 		return
 	}
 
-	transaction, err := h.store.Transactions().GetByID(r.Context(), transactionID)
+	transaction, err := h.store.Transactions().GetByIDForUser(r.Context(), transactionID, userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -276,7 +295,7 @@ func (h *Handler) deleteTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.Transactions().Delete(r.Context(), transactionID); err != nil {
+	if err := h.store.Transactions().DeleteForUser(r.Context(), transactionID, userID); err != nil {
 		writeServiceError(w, err)
 		return
 	}

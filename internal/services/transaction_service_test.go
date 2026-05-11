@@ -147,7 +147,15 @@ func (r failingTransactionRepo) GetByID(_ context.Context, _ string) (*models.Tr
 	return nil, r.err
 }
 
+func (r failingTransactionRepo) GetByIDForUser(_ context.Context, _, _ string) (*models.Transaction, error) {
+	return nil, r.err
+}
+
 func (r failingTransactionRepo) List(_ context.Context) ([]models.Transaction, error) {
+	return nil, r.err
+}
+
+func (r failingTransactionRepo) ListByUser(_ context.Context, _ string) ([]models.Transaction, error) {
 	return nil, r.err
 }
 
@@ -155,7 +163,15 @@ func (r failingTransactionRepo) ListByAccount(_ context.Context, _ string) ([]mo
 	return nil, r.err
 }
 
+func (r failingTransactionRepo) ListByAccountForUser(_ context.Context, _, _ string) ([]models.Transaction, error) {
+	return nil, r.err
+}
+
 func (r failingTransactionRepo) Delete(_ context.Context, _ string) error {
+	return r.err
+}
+
+func (r failingTransactionRepo) DeleteForUser(_ context.Context, _, _ string) error {
 	return r.err
 }
 

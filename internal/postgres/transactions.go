@@ -46,11 +46,19 @@ func (r *TransactionRepository) CreateMany(ctx context.Context, transactions []m
 }
 
 func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*models.Transaction, error) {
-	transaction, err := scanTransaction(r.pool.QueryRow(ctx, `
-		SELECT id, account_id, related_account_id, type, amount_minor, category_id, description, occurred_at, created_at
-		FROM transactions
-		WHERE id = $1
-	`, id))
+	transaction, err := scanTransaction(r.pool.QueryRow(ctx, transactionSelectSQL+` WHERE id = $1`, id))
+	if err != nil {
+		return nil, fmt.Errorf("get transaction: %w", mapNotFound(err))
+	}
+	return transaction, nil
+}
+
+func (r *TransactionRepository) GetByIDForUser(ctx context.Context, id, userID string) (*models.Transaction, error) {
+	transaction, err := scanTransaction(r.pool.QueryRow(ctx, transactionSelectSQL+`
+		WHERE t.id = $1 AND EXISTS (
+			SELECT 1 FROM accounts a WHERE a.id = t.account_id AND a.owner_user_id = $2
+		)
+	`, id, userID))
 	if err != nil {
 		return nil, fmt.Errorf("get transaction: %w", mapNotFound(err))
 	}
@@ -58,24 +66,52 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*models
 }
 
 func (r *TransactionRepository) List(ctx context.Context) ([]models.Transaction, error) {
-	return r.list(ctx, `
-		SELECT id, account_id, related_account_id, type, amount_minor, category_id, description, occurred_at, created_at
-		FROM transactions
+	return r.list(ctx, transactionSelectSQL+` ORDER BY occurred_at, created_at`)
+}
+
+func (r *TransactionRepository) ListByUser(ctx context.Context, userID string) ([]models.Transaction, error) {
+	return r.list(ctx, transactionSelectSQL+`
+		WHERE EXISTS (
+			SELECT 1 FROM accounts a WHERE a.id = t.account_id AND a.owner_user_id = $1
+		)
 		ORDER BY occurred_at, created_at
-	`)
+	`, userID)
 }
 
 func (r *TransactionRepository) ListByAccount(ctx context.Context, accountID string) ([]models.Transaction, error) {
-	return r.list(ctx, `
-		SELECT id, account_id, related_account_id, type, amount_minor, category_id, description, occurred_at, created_at
-		FROM transactions
-		WHERE account_id = $1
+	return r.list(ctx, transactionSelectSQL+`
+		WHERE t.account_id = $1
 		ORDER BY occurred_at, created_at
 	`, accountID)
 }
 
+func (r *TransactionRepository) ListByAccountForUser(ctx context.Context, accountID, userID string) ([]models.Transaction, error) {
+	return r.list(ctx, transactionSelectSQL+`
+		WHERE t.account_id = $1
+			AND EXISTS (
+				SELECT 1 FROM accounts a WHERE a.id = t.account_id AND a.owner_user_id = $2
+			)
+		ORDER BY occurred_at, created_at
+	`, accountID, userID)
+}
+
 func (r *TransactionRepository) Delete(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM transactions WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete transaction: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete transaction: %w", repository.ErrNotFound)
+	}
+	return nil
+}
+
+func (r *TransactionRepository) DeleteForUser(ctx context.Context, id, userID string) error {
+	tag, err := r.pool.Exec(ctx, `
+		DELETE FROM transactions t
+		USING accounts a
+		WHERE t.id = $1 AND t.account_id = a.id AND a.owner_user_id = $2
+	`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete transaction: %w", err)
 	}
@@ -109,6 +145,11 @@ func (r *TransactionRepository) list(ctx context.Context, query string, args ...
 type transactionScanner interface {
 	Scan(dest ...any) error
 }
+
+const transactionSelectSQL = `
+	SELECT t.id, t.account_id, t.related_account_id, t.type, t.amount_minor, t.category_id, t.description, t.occurred_at, t.created_at
+	FROM transactions t
+`
 
 func scanTransaction(row transactionScanner) (*models.Transaction, error) {
 	var transaction models.Transaction

@@ -510,6 +510,10 @@ func (r *fakeAccountRepo) GetByID(_ context.Context, id string) (*models.Account
 	return &cp, nil
 }
 
+func (r *fakeAccountRepo) GetByIDForUser(ctx context.Context, id, _ string) (*models.Account, error) {
+	return r.GetByID(ctx, id)
+}
+
 func (r *fakeAccountRepo) GetByLegacyID(_ context.Context, legacyID string) (*models.Account, error) {
 	account, ok := r.byLegacy[legacyID]
 	if !ok {
@@ -527,6 +531,21 @@ func (r *fakeAccountRepo) List(context.Context) ([]models.Account, error) {
 	return accounts, nil
 }
 
+func (r *fakeAccountRepo) ListByUser(ctx context.Context, _ string) ([]models.Account, error) {
+	return r.List(ctx)
+}
+
+func (r *fakeAccountRepo) ClaimUnowned(_ context.Context, userID string) error {
+	for _, account := range r.byID {
+		if account.OwnerUserID == nil {
+			ownerUserID := userID
+			account.OwnerUserID = &ownerUserID
+		}
+	}
+
+	return nil
+}
+
 func (r *fakeAccountRepo) Update(_ context.Context, account *models.Account) error {
 	if _, ok := r.byID[account.ID]; !ok {
 		return repository.ErrNotFound
@@ -536,6 +555,10 @@ func (r *fakeAccountRepo) Update(_ context.Context, account *models.Account) err
 	return nil
 }
 
+func (r *fakeAccountRepo) UpdateForUser(ctx context.Context, account *models.Account, _ string) error {
+	return r.Update(ctx, account)
+}
+
 func (r *fakeAccountRepo) Archive(_ context.Context, id string) error {
 	account, ok := r.byID[id]
 	if !ok {
@@ -543,6 +566,10 @@ func (r *fakeAccountRepo) Archive(_ context.Context, id string) error {
 	}
 	account.IsActive = false
 	return nil
+}
+
+func (r *fakeAccountRepo) ArchiveForUser(ctx context.Context, id, _ string) error {
+	return r.Archive(ctx, id)
 }
 
 type fakeTransactionRepo struct {
@@ -582,6 +609,10 @@ func (r *fakeTransactionRepo) GetByID(_ context.Context, id string) (*models.Tra
 	return &cp, nil
 }
 
+func (r *fakeTransactionRepo) GetByIDForUser(ctx context.Context, id, _ string) (*models.Transaction, error) {
+	return r.GetByID(ctx, id)
+}
+
 func (r *fakeTransactionRepo) List(context.Context) ([]models.Transaction, error) {
 	var transactions []models.Transaction
 	for _, transaction := range r.byID {
@@ -590,8 +621,16 @@ func (r *fakeTransactionRepo) List(context.Context) ([]models.Transaction, error
 	return transactions, nil
 }
 
+func (r *fakeTransactionRepo) ListByUser(ctx context.Context, _ string) ([]models.Transaction, error) {
+	return r.List(ctx)
+}
+
 func (r *fakeTransactionRepo) ListByAccount(_ context.Context, accountID string) ([]models.Transaction, error) {
 	return append([]models.Transaction(nil), r.byAccount[accountID]...), nil
+}
+
+func (r *fakeTransactionRepo) ListByAccountForUser(ctx context.Context, accountID, _ string) ([]models.Transaction, error) {
+	return r.ListByAccount(ctx, accountID)
 }
 
 func (r *fakeTransactionRepo) Delete(_ context.Context, id string) error {
@@ -600,6 +639,10 @@ func (r *fakeTransactionRepo) Delete(_ context.Context, id string) error {
 	}
 	delete(r.byID, id)
 	return nil
+}
+
+func (r *fakeTransactionRepo) DeleteForUser(ctx context.Context, id, _ string) error {
+	return r.Delete(ctx, id)
 }
 
 type fakeInterestRuleRepo struct {

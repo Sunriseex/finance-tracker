@@ -25,11 +25,12 @@ func NewAccountService(repos ...repository.AccountRepository) *AccountService {
 }
 
 type CreateAccountRequest struct {
-	Name     string
-	Bank     string
-	Type     models.AccountType
-	Currency string
-	OpenedAt time.Time
+	OwnerUserID string
+	Name        string
+	Bank        string
+	Type        models.AccountType
+	Currency    string
+	OpenedAt    time.Time
 }
 
 func (s *AccountService) Create(ctx context.Context, req *CreateAccountRequest) (*models.Account, error) {
@@ -66,15 +67,16 @@ func (s *AccountService) Create(ctx context.Context, req *CreateAccountRequest) 
 	now := time.Now()
 
 	account := &models.Account{
-		ID:        uuid.NewString(),
-		Name:      name,
-		Bank:      strings.TrimSpace(req.Bank),
-		Type:      req.Type,
-		Currency:  currency,
-		IsActive:  true,
-		OpenedAt:  openedAt,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          uuid.NewString(),
+		OwnerUserID: ownerUserID(req.OwnerUserID),
+		Name:        name,
+		Bank:        strings.TrimSpace(req.Bank),
+		Type:        req.Type,
+		Currency:    currency,
+		IsActive:    true,
+		OpenedAt:    openedAt,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if s.repo != nil {
@@ -84,6 +86,14 @@ func (s *AccountService) Create(ctx context.Context, req *CreateAccountRequest) 
 	}
 
 	return account, nil
+}
+
+func ownerUserID(id string) *string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	return &id
 }
 
 func validCurrency(currency string) bool {

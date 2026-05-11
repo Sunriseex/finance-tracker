@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/sunriseex/capitalflow/internal/auth"
 	appmiddleware "github.com/sunriseex/capitalflow/internal/http/middleware"
 	"github.com/sunriseex/capitalflow/internal/repository"
 )
@@ -18,22 +19,27 @@ type Store interface {
 	Categories() repository.CategoryRepository
 	InterestRules() repository.InterestRuleRepository
 	InterestAccruals() repository.InterestAccrualRepository
+	Users() repository.UserRepository
+	RefreshTokens() repository.RefreshTokenRepository
+	AuthAuditEvents() repository.AuthAuditRepository
 	Ping(ctx context.Context) error
 }
 
 type Handler struct {
-	store Store
+	store  Store
+	tokens *auth.TokenService
 }
 
 type RouterConfig struct {
 	APIAuthToken       string
+	TokenService       *auth.TokenService
 	CORSAllowedOrigins []string
 	RateLimitRequests  int
 	RateLimitWindow    time.Duration
 }
 
 func NewRouter(store Store, cfg RouterConfig) http.Handler {
-	h := &Handler{store: store}
+	h := &Handler{store: store, tokens: cfg.TokenService}
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
@@ -56,12 +62,23 @@ func NewRouter(store Store, cfg RouterConfig) http.Handler {
 
 	r.Get("/health", h.health)
 	r.Get("/ready", h.ready)
+	r.Get("/auth/status", h.authStatus)
+	r.Post("/auth/setup", h.authSetup)
+	r.Post("/auth/login", h.authLogin)
+	r.Post("/auth/refresh", h.authRefresh)
+	r.Post("/auth/logout", h.authLogout)
 
 	r.Route("/api", func(r chi.Router) {
-		r.Use(appmiddleware.BearerTokenAuth(cfg.APIAuthToken))
+		if cfg.TokenService != nil {
+			r.Use(appmiddleware.JWTAuth(cfg.TokenService, h.store.RefreshTokens()))
+		} else {
+			r.Use(appmiddleware.BearerTokenAuth(cfg.APIAuthToken))
+		}
 
 		r.Get("/categories", h.listCategories)
 		r.Get("/currency-rates", h.getCurrencyRates)
+		r.Get("/settings/profile", h.getProfile)
+		r.Patch("/settings/profile", h.updateProfile)
 
 		r.Get("/accounts", h.listAccounts)
 		r.Post("/accounts", h.createAccount)

@@ -39,6 +39,18 @@ func (s *Store) InterestAccruals() repository.InterestAccrualRepository {
 	return NewInterestAccrualRepository(s.pool)
 }
 
+func (s *Store) Users() repository.UserRepository {
+	return NewUserRepository(s.pool)
+}
+
+func (s *Store) RefreshTokens() repository.RefreshTokenRepository {
+	return NewRefreshTokenRepository(s.pool)
+}
+
+func (s *Store) AuthAuditEvents() repository.AuthAuditRepository {
+	return NewAuthAuditRepository(s.pool)
+}
+
 func mapNotFound(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return repository.ErrNotFound

@@ -7,16 +7,21 @@ import (
 )
 
 func (h *Handler) getAccountBalance(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	accountID, ok := routeUUIDParam(w, r, "id")
 	if !ok {
 		return
 	}
-	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
+	if _, err := h.store.Accounts().GetByIDForUser(r.Context(), accountID, userID); err != nil {
 		writeServiceError(w, err)
 		return
 	}
 
-	transactions, err := h.store.Transactions().ListByAccount(r.Context(), accountID)
+	transactions, err := h.store.Transactions().ListByAccountForUser(r.Context(), accountID, userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return

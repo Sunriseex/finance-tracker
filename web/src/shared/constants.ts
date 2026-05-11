@@ -1,6 +1,6 @@
 import type { AccountType, TransactionType } from "../api/types";
 
-export type View = "dashboard" | "accounts" | "transactions";
+export type View = "dashboard" | "accounts" | "transactions" | "settings";
 export type QuickAction = "income" | "expense" | "transfer" | "account" | null;
 export type Theme = "light" | "dark";
 

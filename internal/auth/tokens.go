@@ -28,6 +28,7 @@ type TokenService struct {
 type Claims struct {
 	UserID    string `json:"user_id"`
 	Email     string `json:"email"`
+	SessionID string `json:"session_id"`
 	TokenType string `json:"token_type"`
 	jwt.RegisteredClaims
 }
@@ -61,10 +62,12 @@ func NewTokenService(secret, issuer string, accessTTL, refreshTTL time.Duration)
 func (s *TokenService) IssuePair(userID, email string, now time.Time) (*TokenPair, error) {
 	accessExpiresAt := now.Add(s.accessTTL)
 	refreshExpiresAt := now.Add(s.refreshTTL)
+	refreshTokenID := uuid.NewString()
 
 	accessClaims := Claims{
 		UserID:    userID,
 		Email:     email,
+		SessionID: refreshTokenID,
 		TokenType: TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    s.issuer,
@@ -92,7 +95,7 @@ func (s *TokenService) IssuePair(userID, email string, now time.Time) (*TokenPai
 		AccessToken:      accessToken,
 		AccessExpiresAt:  accessExpiresAt,
 		RefreshToken:     refreshToken,
-		RefreshTokenID:   uuid.NewString(),
+		RefreshTokenID:   refreshTokenID,
 		RefreshTokenHash: HashRefreshToken(refreshToken),
 		RefreshExpiresAt: refreshExpiresAt,
 	}, nil
@@ -124,6 +127,10 @@ func (s *TokenService) ValidateAccess(tokenString string, now time.Time) (*Claim
 	if claims.TokenType != TokenTypeAccess {
 		slog.Warn("access token validation failed", "reason", "invalid_token_type", "token_type", claims.TokenType)
 		return nil, fmt.Errorf("invalid token type")
+	}
+	if claims.SessionID == "" {
+		slog.Warn("access token validation failed", "reason", "missing_session_id")
+		return nil, fmt.Errorf("missing session id")
 	}
 	slog.Debug("access token validated", "user_id", claims.UserID, "expires_at", claims.ExpiresAt)
 	return claims, nil

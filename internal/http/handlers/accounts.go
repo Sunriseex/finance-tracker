@@ -11,7 +11,12 @@ import (
 )
 
 func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
-	accounts, err := h.store.Accounts().List(r.Context())
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
+	accounts, err := h.store.Accounts().ListByUser(r.Context(), userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -20,6 +25,11 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	var req dto.CreateAccountRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body", nil)
@@ -33,11 +43,12 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	account, err := services.NewAccountService(h.store.Accounts()).Create(r.Context(), &services.CreateAccountRequest{
-		Name:     req.Name,
-		Bank:     req.Bank,
-		Type:     req.Type,
-		Currency: req.Currency,
-		OpenedAt: openedAt,
+		OwnerUserID: userID,
+		Name:        req.Name,
+		Bank:        req.Bank,
+		Type:        req.Type,
+		Currency:    req.Currency,
+		OpenedAt:    openedAt,
 	})
 	if err != nil {
 		writeValidationOrServiceError(w, err)
@@ -47,12 +58,17 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	accountID, ok := routeUUIDParam(w, r, "id")
 	if !ok {
 		return
 	}
 
-	account, err := h.store.Accounts().GetByID(r.Context(), accountID)
+	account, err := h.store.Accounts().GetByIDForUser(r.Context(), accountID, userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -61,12 +77,17 @@ func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	accountID, ok := routeUUIDParam(w, r, "id")
 	if !ok {
 		return
 	}
 
-	account, err := h.store.Accounts().GetByID(r.Context(), accountID)
+	account, err := h.store.Accounts().GetByIDForUser(r.Context(), accountID, userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -110,7 +131,7 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	account.UpdatedAt = time.Now()
-	if err := h.store.Accounts().Update(r.Context(), account); err != nil {
+	if err := h.store.Accounts().UpdateForUser(r.Context(), account, userID); err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -118,12 +139,17 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) archiveAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	accountID, ok := routeUUIDParam(w, r, "id")
 	if !ok {
 		return
 	}
 
-	if err := h.store.Accounts().Archive(r.Context(), accountID); err != nil {
+	if err := h.store.Accounts().ArchiveForUser(r.Context(), accountID, userID); err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -172,7 +198,11 @@ func validCurrency(currency string) bool {
 }
 
 func (h *Handler) ensureAccountExists(w http.ResponseWriter, r *http.Request, accountID string) bool {
-	if _, err := h.store.Accounts().GetByID(r.Context(), accountID); err != nil {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return false
+	}
+	if _, err := h.store.Accounts().GetByIDForUser(r.Context(), accountID, userID); err != nil {
 		writeServiceError(w, err)
 		return false
 	}
@@ -186,7 +216,11 @@ func (h *Handler) accountByID(w http.ResponseWriter, r *http.Request, accountID,
 		return nil, false
 	}
 
-	account, err := h.store.Accounts().GetByID(r.Context(), accountID)
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return nil, false
+	}
+	account, err := h.store.Accounts().GetByIDForUser(r.Context(), accountID, userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return nil, false

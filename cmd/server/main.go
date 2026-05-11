@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sunriseex/capitalflow/internal/auth"
 	"github.com/sunriseex/capitalflow/internal/config"
 	"github.com/sunriseex/capitalflow/internal/http/handlers"
 	"github.com/sunriseex/capitalflow/internal/postgres"
@@ -37,8 +38,8 @@ func run() error {
 	databaseURL := flag.String("database-url", config.AppConfig.DatabaseURL, "PostgreSQL connection URL")
 	flag.Parse()
 
-	if strings.TrimSpace(config.AppConfig.APIAuthToken) == "" {
-		return fmt.Errorf("API_AUTH_TOKEN is required")
+	if strings.TrimSpace(config.AppConfig.JWTSecret) == "" {
+		return fmt.Errorf("JWT_SECRET is required")
 	}
 
 	pool, err := postgres.OpenPool(ctx, *databaseURL)
@@ -52,10 +53,21 @@ func run() error {
 		return fmt.Errorf("postgres ping: %w", err)
 	}
 
+	tokenService, err := auth.NewTokenService(
+		config.AppConfig.JWTSecret,
+		"capitalflow",
+		config.AppConfig.AccessTokenTTL,
+		config.AppConfig.RefreshTokenTTL,
+	)
+	if err != nil {
+		return fmt.Errorf("init token service: %w", err)
+	}
+
 	server := &http.Server{
 		Addr: *addr,
 		Handler: handlers.NewRouter(store, handlers.RouterConfig{
 			APIAuthToken:       config.AppConfig.APIAuthToken,
+			TokenService:       tokenService,
 			CORSAllowedOrigins: config.AppConfig.CORSAllowedOrigins,
 			RateLimitRequests:  config.AppConfig.RateLimitRequests,
 			RateLimitWindow:    config.AppConfig.RateLimitWindow,

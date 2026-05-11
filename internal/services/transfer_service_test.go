@@ -125,7 +125,15 @@ func (r *batchTransactionRepo) GetByID(context.Context, string) (*models.Transac
 	return nil, errNotImplemented
 }
 
+func (r *batchTransactionRepo) GetByIDForUser(context.Context, string, string) (*models.Transaction, error) {
+	return nil, errNotImplemented
+}
+
 func (r *batchTransactionRepo) List(context.Context) ([]models.Transaction, error) {
+	return nil, nil
+}
+
+func (r *batchTransactionRepo) ListByUser(context.Context, string) ([]models.Transaction, error) {
 	return nil, nil
 }
 
@@ -133,7 +141,15 @@ func (r *batchTransactionRepo) ListByAccount(context.Context, string) ([]models.
 	return nil, nil
 }
 
+func (r *batchTransactionRepo) ListByAccountForUser(context.Context, string, string) ([]models.Transaction, error) {
+	return nil, nil
+}
+
 func (r *batchTransactionRepo) Delete(context.Context, string) error {
+	return nil
+}
+
+func (r *batchTransactionRepo) DeleteForUser(context.Context, string, string) error {
 	return nil
 }
 

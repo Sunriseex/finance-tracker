@@ -28,6 +28,21 @@ func TestAccountServiceCreate(t *testing.T) {
 	}
 }
 
+func TestAccountServiceCreateStoresOwnerUserID(t *testing.T) {
+	account, err := NewAccountService().Create(t.Context(), &CreateAccountRequest{
+		OwnerUserID: "user-1",
+		Name:        "Savings",
+		Type:        models.AccountTypeSavings,
+		Currency:    "RUB",
+	})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	if account.OwnerUserID == nil || *account.OwnerUserID != "user-1" {
+		t.Fatalf("owner user id = %v, want user-1", account.OwnerUserID)
+	}
+}
+
 func TestAccountServiceCreateValidatesInput(t *testing.T) {
 	_, err := NewAccountService().Create(t.Context(), &CreateAccountRequest{
 		Name: "Savings",

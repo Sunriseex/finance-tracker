@@ -18,13 +18,18 @@ const dashboardRecentTransactionsLimit = 10
 const defaultDashboardMonths = 6
 
 func (h *Handler) getDashboardSummary(w http.ResponseWriter, r *http.Request) {
-	accounts, err := h.store.Accounts().List(r.Context())
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
+	accounts, err := h.store.Accounts().ListByUser(r.Context(), userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
 
-	transactions, err := h.store.Transactions().List(r.Context())
+	transactions, err := h.store.Transactions().ListByUser(r.Context(), userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -83,13 +88,18 @@ func (h *Handler) getDashboardInterestIncome(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) dashboardData(w http.ResponseWriter, r *http.Request) ([]models.Account, []models.Transaction, bool) {
-	accounts, err := h.store.Accounts().List(r.Context())
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return nil, nil, false
+	}
+
+	accounts, err := h.store.Accounts().ListByUser(r.Context(), userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return nil, nil, false
 	}
 
-	transactions, err := h.store.Transactions().List(r.Context())
+	transactions, err := h.store.Transactions().ListByUser(r.Context(), userID)
 	if err != nil {
 		writeServiceError(w, err)
 		return nil, nil, false

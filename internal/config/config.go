@@ -21,6 +21,9 @@ type Config struct {
 	DepositsDataPath   string
 	DatabaseURL        string
 	APIAuthToken       string
+	JWTSecret          string
+	AccessTokenTTL     time.Duration
+	RefreshTokenTTL    time.Duration
 	CORSAllowedOrigins []string
 	RateLimitRequests  int
 	RateLimitWindow    time.Duration
@@ -85,6 +88,9 @@ func Init() error {
 		DatabaseURL:      getEnv("DATABASE_URL", "postgres://capitalflow:capitalflow@localhost:5432/capitalflow?sslmode=disable"),
 		LogLevel:         logLevel,
 		APIAuthToken:     getEnv("API_AUTH_TOKEN", ""),
+		JWTSecret:        getEnv("JWT_SECRET", ""),
+		AccessTokenTTL:   getEnvDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
+		RefreshTokenTTL:  getEnvDuration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		CORSAllowedOrigins: getEnvList("CORS_ALLOWED_ORIGINS", []string{
 			"http://localhost:5173",
 			"http://127.0.0.1:5173",

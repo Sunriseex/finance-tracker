@@ -496,7 +496,15 @@ func (r *recordingTransactionRepo) GetByID(context.Context, string) (*models.Tra
 	return nil, errNotImplemented
 }
 
+func (r *recordingTransactionRepo) GetByIDForUser(context.Context, string, string) (*models.Transaction, error) {
+	return nil, errNotImplemented
+}
+
 func (r *recordingTransactionRepo) List(context.Context) ([]models.Transaction, error) {
+	return nil, nil
+}
+
+func (r *recordingTransactionRepo) ListByUser(context.Context, string) ([]models.Transaction, error) {
 	return nil, nil
 }
 
@@ -504,7 +512,15 @@ func (r *recordingTransactionRepo) ListByAccount(context.Context, string) ([]mod
 	return nil, nil
 }
 
+func (r *recordingTransactionRepo) ListByAccountForUser(context.Context, string, string) ([]models.Transaction, error) {
+	return nil, nil
+}
+
 func (r *recordingTransactionRepo) Delete(context.Context, string) error {
+	return nil
+}
+
+func (r *recordingTransactionRepo) DeleteForUser(context.Context, string, string) error {
 	return nil
 }
 

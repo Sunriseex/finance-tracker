@@ -8,11 +8,13 @@ import type {
   DashboardSummary,
   CurrencyRateTable,
   InterestRule,
+  Profile,
   Transaction,
   TransactionType,
 } from "./types";
 
 const tokenKey = "capitalflow_api_token";
+const refreshTokenKey = "capitalflow_refresh_token";
 const apiBaseKey = "capitalflow_api_base";
 const legacyTokenKey = "finance_tracker_api_token";
 const legacyApiBaseKey = "finance_tracker_api_base";
@@ -27,6 +29,20 @@ export function setStoredToken(token: string) {
   localStorage.setItem(tokenKey, token.trim());
 }
 
+export function getStoredRefreshToken() {
+  return localStorage.getItem(refreshTokenKey) ?? "";
+}
+
+export function setStoredRefreshToken(token: string) {
+  localStorage.setItem(refreshTokenKey, token.trim());
+}
+
+export function clearStoredSession() {
+  localStorage.removeItem(tokenKey);
+  localStorage.removeItem(refreshTokenKey);
+  localStorage.removeItem(legacyTokenKey);
+}
+
 export function getStoredApiBase() {
   const stored = (localStorage.getItem(apiBaseKey) ?? localStorage.getItem(legacyApiBaseKey))?.replace(/\/$/, "");
   if (!stored || stored === legacyDefaultApiBase) {
@@ -38,6 +54,11 @@ export function getStoredApiBase() {
 export function setStoredApiBase(base: string) {
   const normalized = base.trim().replace(/\/$/, "");
   localStorage.setItem(apiBaseKey, normalized || defaultApiBase);
+}
+
+function getAuthBase() {
+  const apiBase = getStoredApiBase();
+  return apiBase.endsWith("/api") ? apiBase.slice(0, -4) : apiBase;
 }
 
 export class ApiClientError extends Error {
@@ -56,6 +77,10 @@ export class ApiClientError extends Error {
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return apiFetchWithAuth<T>(path, init, true);
+}
+
+async function apiFetchWithAuth<T>(path: string, init: RequestInit = {}, allowRefresh: boolean): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getStoredToken();
   if (token) {
@@ -76,6 +101,10 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   const payload = await response.json().catch(() => null);
+  if (response.status === 401 && allowRefresh && getStoredRefreshToken()) {
+    await refreshSession();
+    return apiFetchWithAuth<T>(path, init, false);
+  }
   if (!response.ok) {
     const err = payload?.error;
     throw new ApiClientError(err?.message ?? response.statusText, response.status, err?.code);
@@ -84,7 +113,95 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   return payload as T;
 }
 
+async function authFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+	const headers = new Headers(init.headers);
+	if (init.body && !headers.has("Content-Type")) {
+		headers.set("Content-Type", "application/json");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${getAuthBase()}${path}`, { ...init, headers });
+  } catch (err) {
+    throw new ApiClientError(err instanceof Error ? err.message : "API request failed", 0, "network_error");
+  }
+	if (response.status === 204) {
+		return undefined as T;
+	}
+
+	const contentType = response.headers.get("Content-Type") ?? "";
+	const payload = contentType.includes("application/json") ? await response.json().catch(() => null) : null;
+	if (!response.ok) {
+		const err = payload?.error;
+		throw new ApiClientError(err?.message ?? response.statusText, response.status, err?.code);
+	}
+	if (payload == null) {
+		throw new ApiClientError("Invalid API response", response.status, "invalid_response");
+	}
+	return payload as T;
+}
+
+let refreshSessionPromise: Promise<AuthResponse> | null = null;
+
+type AuthResponse = {
+  user: { id: string; email: string; primary_currency: string };
+  access_token: string;
+  access_expires_at: string;
+  refresh_token: string;
+  refresh_expires_at: string;
+};
+
+function storeSession(session: AuthResponse) {
+  setStoredToken(session.access_token);
+  setStoredRefreshToken(session.refresh_token);
+  return session;
+}
+
+async function refreshSession() {
+  if (refreshSessionPromise) {
+    return refreshSessionPromise;
+  }
+
+  const refreshToken = getStoredRefreshToken();
+  if (!refreshToken) {
+    throw new ApiClientError("Login required", 401, "unauthorized");
+  }
+
+  refreshSessionPromise = authFetch<AuthResponse>("/auth/refresh", {
+    method: "POST",
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  })
+    .then(storeSession)
+    .catch((err) => {
+      clearStoredSession();
+
+      if (err instanceof ApiClientError) {
+        throw new ApiClientError("Login required", 401, "unauthorized");
+      }
+
+      throw err;
+    })
+    .finally(() => {
+      refreshSessionPromise = null;
+    });
+
+  return refreshSessionPromise;
+}
+
 export const api = {
+  authStatus: () => authFetch<{ setup_required: boolean }>("/auth/status"),
+  setup: async (input: { email: string; password: string; primary_currency: string }) =>
+    storeSession(await authFetch<AuthResponse>("/auth/setup", { method: "POST", body: JSON.stringify(input) })),
+  login: async (input: { email: string; password: string }) =>
+    storeSession(await authFetch<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify(input) })),
+  logout: async () => {
+    const refreshToken = getStoredRefreshToken();
+    await authFetch<void>("/auth/logout", { method: "POST", body: JSON.stringify({ refresh_token: refreshToken }) }).catch(() => undefined);
+    clearStoredSession();
+  },
+  profile: () => apiFetch<Profile>("/settings/profile"),
+  updateProfile: (input: { primary_currency: string }) =>
+    apiFetch<Profile>("/settings/profile", { method: "PATCH", body: JSON.stringify(input) }),
   dashboardSummary: () => apiFetch<DashboardSummary>("/dashboard/summary"),
   dashboardCashflow: () => apiFetch<DashboardCashflow>("/dashboard/cashflow?months=6"),
   dashboardInterestIncome: () => apiFetch<DashboardInterestIncome>("/dashboard/interest-income?months=6"),
