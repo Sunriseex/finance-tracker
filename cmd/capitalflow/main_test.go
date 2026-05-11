@@ -4,8 +4,11 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sunriseex/capitalflow/internal/config"
+	"github.com/sunriseex/capitalflow/internal/models"
+	"github.com/sunriseex/capitalflow/internal/repository"
 )
 
 func TestRunTransactionsCreateRejectsTransferTypes(t *testing.T) {
@@ -48,4 +51,88 @@ func TestRunTransactionsCreateRejectsTransferTypes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResolveOwnerUserIDRequiresOwnerAfterSetup(t *testing.T) {
+	users := &fakeCLIUserRepo{
+		byID: map[string]*models.User{
+			"user-1": {ID: "user-1", Email: "user@example.com"},
+		},
+	}
+
+	_, err := resolveOwnerUserID(t.Context(), users, "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "owner-user-id is required") {
+		t.Fatalf("error = %q, want owner-user-id requirement", err.Error())
+	}
+}
+
+func TestResolveOwnerUserIDAllowsUnownedBeforeSetup(t *testing.T) {
+	users := &fakeCLIUserRepo{byID: map[string]*models.User{}}
+
+	ownerUserID, err := resolveOwnerUserID(t.Context(), users, "")
+	if err != nil {
+		t.Fatalf("resolve owner user id: %v", err)
+	}
+	if ownerUserID != "" {
+		t.Fatalf("owner user id = %q, want empty", ownerUserID)
+	}
+}
+
+func TestResolveOwnerUserIDValidatesProvidedOwner(t *testing.T) {
+	users := &fakeCLIUserRepo{
+		byID: map[string]*models.User{
+			"user-1": {ID: "user-1", Email: "user@example.com"},
+		},
+	}
+
+	ownerUserID, err := resolveOwnerUserID(t.Context(), users, " user-1 ")
+	if err != nil {
+		t.Fatalf("resolve owner user id: %v", err)
+	}
+	if ownerUserID != "user-1" {
+		t.Fatalf("owner user id = %q, want user-1", ownerUserID)
+	}
+}
+
+type fakeCLIUserRepo struct {
+	byID map[string]*models.User
+}
+
+func (r *fakeCLIUserRepo) Create(_ context.Context, user *models.User) error {
+	r.byID[user.ID] = user
+	return nil
+}
+
+func (r *fakeCLIUserRepo) Count(context.Context) (int64, error) {
+	return int64(len(r.byID)), nil
+}
+
+func (r *fakeCLIUserRepo) GetByEmail(_ context.Context, email string) (*models.User, error) {
+	for _, user := range r.byID {
+		if user.Email == email {
+			return user, nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+
+func (r *fakeCLIUserRepo) GetByID(_ context.Context, id string) (*models.User, error) {
+	user, ok := r.byID[id]
+	if !ok {
+		return nil, repository.ErrNotFound
+	}
+	return user, nil
+}
+
+func (r *fakeCLIUserRepo) UpdatePrimaryCurrency(_ context.Context, id, primaryCurrency string, updatedAt time.Time) error {
+	user, ok := r.byID[id]
+	if !ok {
+		return repository.ErrNotFound
+	}
+	user.PrimaryCurrency = primaryCurrency
+	user.UpdatedAt = updatedAt
+	return nil
 }

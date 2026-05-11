@@ -13,6 +13,7 @@ import (
 	"github.com/sunriseex/capitalflow/internal/migration"
 	"github.com/sunriseex/capitalflow/internal/models"
 	"github.com/sunriseex/capitalflow/internal/postgres"
+	"github.com/sunriseex/capitalflow/internal/repository"
 	"github.com/sunriseex/capitalflow/internal/services"
 	"github.com/sunriseex/capitalflow/internal/storage"
 	"github.com/sunriseex/capitalflow/pkg/money"
@@ -157,6 +158,7 @@ func runAccountsCreate(ctx context.Context, args []string) error {
 	accountType := flags.String("type", string(models.AccountTypeOther), "account type")
 	currency := flags.String("currency", "RUB", "currency code")
 	opened := flags.String("opened", "", "opened date YYYY-MM-DD")
+	ownerUserID := flags.String("owner-user-id", "", "owner user id")
 	databaseURL := flags.String("database-url", config.AppConfig.DatabaseURL, "PostgreSQL connection URL")
 	timeout := flags.Duration("timeout", 30*time.Second, "operation timeout")
 	if err := flags.Parse(args); err != nil {
@@ -177,13 +179,19 @@ func runAccountsCreate(ctx context.Context, args []string) error {
 	}
 	defer closeStore()
 
+	resolvedOwnerUserID, err := resolveOwnerUserID(ctx, store.Users(), *ownerUserID)
+	if err != nil {
+		return err
+	}
+
 	service := services.NewAccountService(store.Accounts())
 	account, err := service.Create(ctx, &services.CreateAccountRequest{
-		Name:     *name,
-		Bank:     *bank,
-		Type:     models.AccountType(strings.TrimSpace(*accountType)),
-		Currency: *currency,
-		OpenedAt: openedAt,
+		OwnerUserID: resolvedOwnerUserID,
+		Name:        *name,
+		Bank:        *bank,
+		Type:        models.AccountType(strings.TrimSpace(*accountType)),
+		Currency:    *currency,
+		OpenedAt:    openedAt,
 	})
 	if err != nil {
 		return err
@@ -335,6 +343,7 @@ func runBalance(ctx context.Context, args []string) error {
 func runMigrateJSON(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("migrate-json", flag.ContinueOnError)
 	depositsPath := flags.String("deposits", config.AppConfig.DepositsDataPath, "legacy deposits JSON path")
+	ownerUserID := flags.String("owner-user-id", "", "owner user id for migrated accounts")
 	databaseURL := flags.String("database-url", config.AppConfig.DatabaseURL, "PostgreSQL connection URL")
 	timeout := flags.Duration("timeout", 30*time.Second, "migration timeout")
 	if err := flags.Parse(args); err != nil {
@@ -355,11 +364,17 @@ func runMigrateJSON(ctx context.Context, args []string) error {
 	}
 	defer closeStore()
 
+	resolvedOwnerUserID, err := resolveOwnerUserID(ctx, store.Users(), *ownerUserID)
+	if err != nil {
+		return err
+	}
+
 	migrator := migration.NewJSONMigrator(
 		store.Accounts(),
 		store.Transactions(),
 		store.InterestRules(),
 		migration.WithDepositMigrationRepository(store),
+		migration.WithOwnerUserID(resolvedOwnerUserID),
 	)
 	report, err := migrator.MigrateDeposits(ctx, deposits.Deposits)
 	if err != nil {
@@ -377,6 +392,11 @@ func printMigrationReport(report *migration.JSONMigrationReport) {
 	fmt.Println("JSON migration report")
 	fmt.Printf("  deposits: %d\n", report.TotalDeposits)
 	fmt.Printf("  accounts created: %d\n", report.CreatedAccounts)
+	if report.OwnerUserID == "" {
+		fmt.Println("  owner_user_id: none (setup will claim unowned accounts)")
+	} else {
+		fmt.Printf("  owner_user_id: %s\n", report.OwnerUserID)
+	}
 	fmt.Printf("  interest rules created: %d\n", report.CreatedInterestRules)
 	fmt.Printf("  transactions created: %d\n", report.CreatedTransactions)
 	fmt.Printf("  skipped existing: %d\n", report.SkippedExisting)
@@ -411,17 +431,38 @@ func parseAmountMinor(input string) (int64, error) {
 	return money.DecimalToLegacyKopecks(amount)
 }
 
+func resolveOwnerUserID(ctx context.Context, users repository.UserRepository, ownerUserID string) (string, error) {
+	ownerUserID = strings.TrimSpace(ownerUserID)
+	count, err := users.Count(ctx)
+	if err != nil {
+		return "", fmt.Errorf("count users: %w", err)
+	}
+	if count == 0 {
+		if ownerUserID != "" {
+			return "", fmt.Errorf("owner-user-id was provided, but setup has not created a user yet")
+		}
+		return "", nil
+	}
+	if ownerUserID == "" {
+		return "", fmt.Errorf("owner-user-id is required after setup")
+	}
+	if _, err := users.GetByID(ctx, ownerUserID); err != nil {
+		return "", fmt.Errorf("get owner user: %w", err)
+	}
+	return ownerUserID, nil
+}
+
 func showHelp() {
 	fmt.Println(`capitalflow
 
 Commands:
   capitalflow doctor [--database-url url]
   capitalflow accounts list [--database-url url]
-  capitalflow accounts create --name name [--type type] [--bank bank] [--currency RUB] [--opened YYYY-MM-DD]
+  capitalflow accounts create --name name --owner-user-id user-id [--type type] [--bank bank] [--currency RUB] [--opened YYYY-MM-DD]
   capitalflow transactions list [--account id] [--database-url url]
   capitalflow transactions create --account id --type income --amount 1000.00 [--description text] [--occurred YYYY-MM-DD]
   capitalflow balance --account id [--database-url url]
-  capitalflow migrate-json [--deposits path] [--database-url url]
+  capitalflow migrate-json [--deposits path] [--owner-user-id user-id] [--database-url url]
   capitalflow version
   capitalflow help`)
 }

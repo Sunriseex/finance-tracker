@@ -178,6 +178,29 @@ func TestAuthServiceRefreshDetectsReuseAndRevokesUserTokens(t *testing.T) {
 	}
 }
 
+func TestAuthServiceRefreshHandlesConcurrentRevokeRace(t *testing.T) {
+	service, users, refresh, audit := newTestAuthService(t)
+	users.byID["user-1"] = &models.User{ID: "user-1", Email: "user@example.com"}
+	oldRaw := "old-refresh-token"
+	oldHash := auth.HashRefreshToken(oldRaw)
+	refresh.byHash[oldHash] = &models.RefreshToken{
+		ID:        "token-1",
+		UserID:    "user-1",
+		TokenHash: oldHash,
+		ExpiresAt: service.now().Add(time.Hour),
+		CreatedAt: service.now(),
+	}
+	refresh.revokeErr = repository.ErrNotFound
+
+	_, err := service.Refresh(t.Context(), oldRaw)
+	if !IsValidationError(err) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if !audit.hasEvent("refresh_failed") {
+		t.Fatal("expected refresh failure audit event")
+	}
+}
+
 func TestAuthServiceLogoutRevokesRefreshToken(t *testing.T) {
 	service, _, refresh, audit := newTestAuthService(t)
 	raw := "refresh-token"
@@ -271,7 +294,8 @@ func (r *fakeUserRepo) UpdatePrimaryCurrency(_ context.Context, id, primaryCurre
 }
 
 type fakeRefreshRepo struct {
-	byHash map[string]*models.RefreshToken
+	byHash    map[string]*models.RefreshToken
+	revokeErr error
 }
 
 func (r *fakeRefreshRepo) Create(_ context.Context, token *models.RefreshToken) error {
@@ -300,6 +324,9 @@ func (r *fakeRefreshRepo) GetByHash(_ context.Context, tokenHash string) (*model
 }
 
 func (r *fakeRefreshRepo) Revoke(_ context.Context, id string, revokedAt time.Time) error {
+	if r.revokeErr != nil {
+		return r.revokeErr
+	}
 	for _, token := range r.byHash {
 		if token.ID == id {
 			token.RevokedAt = &revokedAt

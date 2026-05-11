@@ -19,6 +19,7 @@ type JSONMigrator struct {
 	transactions repository.TransactionRepository
 	rules        repository.InterestRuleRepository
 	migration    repository.DepositMigrationRepository
+	ownerUserID  string
 }
 
 type Option func(*JSONMigrator)
@@ -26,6 +27,12 @@ type Option func(*JSONMigrator)
 func WithDepositMigrationRepository(repo repository.DepositMigrationRepository) Option {
 	return func(m *JSONMigrator) {
 		m.migration = repo
+	}
+}
+
+func WithOwnerUserID(userID string) Option {
+	return func(m *JSONMigrator) {
+		m.ownerUserID = strings.TrimSpace(userID)
 	}
 }
 
@@ -47,6 +54,7 @@ type JSONMigrationReport struct {
 	CreatedInterestRules int
 	CreatedTransactions  int
 	SkippedExisting      int
+	OwnerUserID          string
 	SourceBalanceMinor   int64
 	MigratedBalanceMinor int64
 	BalanceMatchesSource bool
@@ -58,7 +66,7 @@ func (m *JSONMigrator) MigrateDeposits(ctx context.Context, deposits []models.De
 		return nil, fmt.Errorf("migration repositories are required")
 	}
 
-	report := &JSONMigrationReport{TotalDeposits: len(deposits)}
+	report := &JSONMigrationReport{TotalDeposits: len(deposits), OwnerUserID: m.ownerUserID}
 
 	for i := range deposits {
 		select {
@@ -122,16 +130,17 @@ func (m *JSONMigrator) migrateDeposit(ctx context.Context, deposit *models.Depos
 		return 0, err
 	}
 	account := &models.Account{
-		ID:        uuid.NewString(),
-		LegacyID:  &legacyIDPtr,
-		Name:      strings.TrimSpace(deposit.Name),
-		Bank:      strings.TrimSpace(deposit.Bank),
-		Type:      accountType,
-		Currency:  "RUB",
-		IsActive:  true,
-		OpenedAt:  openedAt,
-		CreatedAt: firstNonZeroTime(deposit.CreatedAt, now),
-		UpdatedAt: firstNonZeroTime(deposit.UpdatedAt, now),
+		ID:          uuid.NewString(),
+		LegacyID:    &legacyIDPtr,
+		OwnerUserID: ownerUserIDPtr(m.ownerUserID),
+		Name:        strings.TrimSpace(deposit.Name),
+		Bank:        strings.TrimSpace(deposit.Bank),
+		Type:        accountType,
+		Currency:    "RUB",
+		IsActive:    true,
+		OpenedAt:    openedAt,
+		CreatedAt:   firstNonZeroTime(deposit.CreatedAt, now),
+		UpdatedAt:   firstNonZeroTime(deposit.UpdatedAt, now),
 	}
 	if account.Name == "" {
 		return 0, fmt.Errorf("deposit name is required")
@@ -160,6 +169,14 @@ func (m *JSONMigrator) migrateDeposit(ctx context.Context, deposit *models.Depos
 	report.CreatedTransactions++
 
 	return deposit.Amount, nil
+}
+
+func ownerUserIDPtr(userID string) *string {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil
+	}
+	return &userID
 }
 
 func (m *JSONMigrator) migrateExistingDeposit(ctx context.Context, deposit *models.Deposit, account *models.Account, report *JSONMigrationReport) (int64, error) {

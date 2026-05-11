@@ -192,6 +192,10 @@ func (s *AuthService) Refresh(ctx context.Context, rawRefreshToken string) (*Aut
 	}
 
 	if err := s.refresh.Revoke(ctx, token.ID, now); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			s.auditEvent(ctx, "refresh_failed", "", &token.UserID, false, "refresh_token_already_rotated")
+			return nil, validationError("invalid refresh token")
+		}
 		return nil, fmt.Errorf("revoke refresh token: %w", err)
 	}
 

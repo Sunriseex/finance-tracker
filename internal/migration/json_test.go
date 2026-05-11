@@ -173,6 +173,51 @@ func TestJSONMigratorMigrateDeposits(t *testing.T) {
 	}
 }
 
+func TestJSONMigratorAssignsOwnerUserID(t *testing.T) {
+	ctx := t.Context()
+	accounts := newFakeAccountRepo()
+	transactions := newFakeTransactionRepo()
+	rules := newFakeInterestRuleRepo()
+	migrationRepo := &fakeDepositMigrationRepo{
+		accounts:     accounts,
+		transactions: transactions,
+		rules:        rules,
+	}
+	migrator := NewJSONMigrator(
+		accounts,
+		transactions,
+		rules,
+		WithDepositMigrationRepository(migrationRepo),
+		WithOwnerUserID(" user-1 "),
+	)
+
+	report, err := migrator.MigrateDeposits(ctx, []models.Deposit{
+		{
+			ID:             "legacy-1",
+			Name:           "Savings",
+			Type:           models.DepositTypeSavings,
+			Amount:         100_000,
+			InterestRate:   12,
+			StartDate:      "2026-05-01",
+			Capitalization: models.CapitalizationDaily,
+		},
+	})
+	if err != nil {
+		t.Fatalf("migrate deposits: %v", err)
+	}
+	if report.OwnerUserID != "user-1" {
+		t.Fatalf("report owner user id = %q, want user-1", report.OwnerUserID)
+	}
+
+	account := accounts.byLegacy["legacy-1"]
+	if account == nil {
+		t.Fatal("account not saved by legacy id")
+	}
+	if account.OwnerUserID == nil || *account.OwnerUserID != "user-1" {
+		t.Fatalf("owner user id = %v, want user-1", account.OwnerUserID)
+	}
+}
+
 func TestJSONMigratorIsIdempotentByLegacyID(t *testing.T) {
 	ctx := t.Context()
 	migrator, _, _, _, _ := newTestJSONMigrator()
