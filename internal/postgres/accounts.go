@@ -156,7 +156,28 @@ func scanAccount(row accountScanner) (*models.Account, error) {
 func insertAccount(ctx context.Context, execer sqlExecer, account *models.Account) error {
 	_, err := execer.Exec(ctx, `
 		INSERT INTO accounts (id, legacy_id, owner_user_id, name, bank, type, currency, is_active, opened_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES (
+			$1,
+			$2,
+			COALESCE(
+				$3,
+				(
+					SELECT id
+					FROM users
+					WHERE (SELECT count(*) FROM users) = 1
+					ORDER BY created_at ASC
+					LIMIT 1
+				)
+			),
+			$4,
+			$5,
+			$6,
+			$7,
+			$8,
+			$9,
+			$10,
+			$11
+		)
 	`, account.ID, account.LegacyID, account.OwnerUserID, account.Name, account.Bank, account.Type, account.Currency, account.IsActive, account.OpenedAt, account.CreatedAt, account.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert account: %w", err)

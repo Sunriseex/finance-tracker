@@ -433,23 +433,31 @@ func parseAmountMinor(input string) (int64, error) {
 
 func resolveOwnerUserID(ctx context.Context, users repository.UserRepository, ownerUserID string) (string, error) {
 	ownerUserID = strings.TrimSpace(ownerUserID)
+
 	count, err := users.Count(ctx)
 	if err != nil {
 		return "", fmt.Errorf("count users: %w", err)
 	}
+
 	if count == 0 {
 		if ownerUserID != "" {
 			return "", fmt.Errorf("owner-user-id was provided, but setup has not created a user yet")
 		}
 		return "", nil
 	}
-	if ownerUserID == "" {
-		return "", fmt.Errorf("owner-user-id is required after setup")
+
+	if ownerUserID != "" {
+		if _, err := users.GetByID(ctx, ownerUserID); err != nil {
+			return "", fmt.Errorf("get owner user: %w", err)
+		}
+		return ownerUserID, nil
 	}
-	if _, err := users.GetByID(ctx, ownerUserID); err != nil {
-		return "", fmt.Errorf("get owner user: %w", err)
+
+	if count == 1 {
+		return "", nil
 	}
-	return ownerUserID, nil
+
+	return "", fmt.Errorf("owner-user-id is required when multiple users exist")
 }
 
 func showHelp() {
