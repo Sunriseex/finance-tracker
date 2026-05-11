@@ -9,6 +9,11 @@ import (
 )
 
 func (h *Handler) createTransfer(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
 	var req dto.CreateTransferRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body", nil)
@@ -37,6 +42,7 @@ func (h *Handler) createTransfer(w http.ResponseWriter, r *http.Request) {
 	result, err := services.NewTransferService(
 		services.NewTransactionService(h.store.Transactions()),
 	).Create(r.Context(), &services.CreateTransferRequest{
+		UserID:        userID,
 		FromAccountID: fromAccountID,
 		ToAccountID:   toAccountID,
 		FromCurrency:  fromAccount.Currency,

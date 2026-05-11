@@ -11,7 +11,7 @@ func TestBearerTokenAuthAllowsValidToken(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/accounts", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/accounts", http.NoBody)
 	req.Header.Set("Authorization", "Bearer secret-token")
 
 	rec := httptest.NewRecorder()
@@ -27,7 +27,7 @@ func TestBearerTokenAuthRejectsMissingToken(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/accounts", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/accounts", http.NoBody)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -42,7 +42,7 @@ func TestBearerTokenAuthRejectsInvalidToken(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/accounts", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/accounts", http.NoBody)
 	req.Header.Set("Authorization", "Bearer wrong-token")
 
 	rec := httptest.NewRecorder()
@@ -58,7 +58,7 @@ func TestBearerTokenAuthRejectsEmptyConfiguredToken(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/accounts", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/accounts", http.NoBody)
 	req.Header.Set("Authorization", "Bearer anything")
 
 	rec := httptest.NewRecorder()

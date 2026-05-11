@@ -104,13 +104,13 @@ func TestApplyTransactionListFilter(t *testing.T) {
 
 func TestParseTransactionListFilterRejectsInvalidQuery(t *testing.T) {
 	tests := []string{
-		"/api/transactions?account_id=bad",
-		"/api/transactions?category_id=bad",
-		"/api/transactions?type=bad",
-		"/api/transactions?from_date=2026-13-01",
-		"/api/transactions?from_date=2026-06-01&to_date=2026-05-01",
-		"/api/transactions?limit=0",
-		"/api/transactions?page=-1",
+		"/api/v1/transactions?account_id=bad",
+		"/api/v1/transactions?category_id=bad",
+		"/api/v1/transactions?type=bad",
+		"/api/v1/transactions?from_date=2026-13-01",
+		"/api/v1/transactions?from_date=2026-06-01&to_date=2026-05-01",
+		"/api/v1/transactions?limit=0",
+		"/api/v1/transactions?page=-1",
 	}
 
 	for _, target := range tests {
@@ -221,7 +221,7 @@ func TestRecalculateInterestRejectsInvalidRequestBeforeStoreAccess(t *testing.T)
 			req := httptest.NewRequestWithContext(
 				t.Context(),
 				http.MethodPost,
-				"/api/accounts/"+tt.accountID+"/recalculate-interest",
+				"/api/v1/accounts/"+tt.accountID+"/recalculate-interest",
 				strings.NewReader(tt.body),
 			)
 			routeContext := chi.NewRouteContext()

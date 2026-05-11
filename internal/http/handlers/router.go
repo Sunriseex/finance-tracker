@@ -22,6 +22,7 @@ type Store interface {
 	Users() repository.UserRepository
 	RefreshTokens() repository.RefreshTokenRepository
 	AuthAuditEvents() repository.AuthAuditRepository
+	Idempotency() repository.IdempotencyRepository
 	Ping(ctx context.Context) error
 }
 
@@ -31,11 +32,15 @@ type Handler struct {
 }
 
 type RouterConfig struct {
-	APIAuthToken       string
-	TokenService       *auth.TokenService
-	CORSAllowedOrigins []string
-	RateLimitRequests  int
-	RateLimitWindow    time.Duration
+	APIAuthToken              string
+	TokenService              *auth.TokenService
+	CORSAllowedOrigins        []string
+	RateLimitRequests         int
+	RateLimitWindow           time.Duration
+	AuthRateLimitRequests     int
+	AuthRateLimitWindow       time.Duration
+	MutationRateLimitRequests int
+	MutationRateLimitWindow   time.Duration
 }
 
 func NewRouter(store Store, cfg RouterConfig) http.Handler {
@@ -54,51 +59,51 @@ func NewRouter(store Store, cfg RouterConfig) http.Handler {
 			http.MethodDelete,
 			http.MethodOptions,
 		},
-		AllowedHeaders: []string{"Authorization", "Content-Type"},
+		AllowedHeaders: []string{"Authorization", "Content-Type", appmiddleware.IdempotencyKeyHeader},
 	}))
-	if cfg.RateLimitRequests > 0 && cfg.RateLimitWindow > 0 {
-		r.Use(appmiddleware.RateLimitByIP(cfg.RateLimitRequests, cfg.RateLimitWindow))
-	}
+	authRateLimit := appmiddleware.RateLimitByIP(firstPositive(cfg.AuthRateLimitRequests, cfg.RateLimitRequests), firstPositiveDuration(cfg.AuthRateLimitWindow, cfg.RateLimitWindow))
+	mutationRateLimit := appmiddleware.RateLimitByIP(firstPositive(cfg.MutationRateLimitRequests, cfg.RateLimitRequests), firstPositiveDuration(cfg.MutationRateLimitWindow, cfg.RateLimitWindow))
 
 	r.Get("/health", h.health)
 	r.Get("/ready", h.ready)
 	r.Get("/auth/status", h.authStatus)
-	r.Post("/auth/setup", h.authSetup)
-	r.Post("/auth/login", h.authLogin)
-	r.Post("/auth/refresh", h.authRefresh)
-	r.Post("/auth/logout", h.authLogout)
+	r.With(authRateLimit).Post("/auth/setup", h.authSetup)
+	r.With(authRateLimit).Post("/auth/login", h.authLogin)
+	r.With(authRateLimit).Post("/auth/refresh", h.authRefresh)
+	r.With(authRateLimit).Post("/auth/logout", h.authLogout)
 
-	r.Route("/api", func(r chi.Router) {
+	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.TokenService != nil {
 			r.Use(appmiddleware.JWTAuth(cfg.TokenService, h.store.RefreshTokens()))
 		} else {
 			r.Use(appmiddleware.BearerTokenAuth(cfg.APIAuthToken))
 		}
+		r.With(appmiddleware.MutationOnly(mutationRateLimit), appmiddleware.Idempotency(h.idempotency())).Group(func(r chi.Router) {
+			r.Patch("/settings/profile", h.updateProfile)
+			r.Post("/accounts", h.createAccount)
+			r.Patch("/accounts/{id}", h.updateAccount)
+			r.Post("/accounts/{id}/archive", h.archiveAccount)
+			r.Post("/transactions", h.createTransaction)
+			r.Delete("/transactions/{id}", h.deleteTransaction)
+			r.Post("/transfers", h.createTransfer)
+			r.Post("/accounts/{id}/interest-rules", h.createInterestRule)
+			r.Patch("/interest-rules/{id}", h.updateInterestRule)
+			r.Post("/accounts/{id}/accrue-interest", h.accrueInterest)
+			r.Post("/accounts/{id}/recalculate-interest", h.recalculateInterest)
+		})
 
 		r.Get("/categories", h.listCategories)
 		r.Get("/currency-rates", h.getCurrencyRates)
 		r.Get("/settings/profile", h.getProfile)
-		r.Patch("/settings/profile", h.updateProfile)
 
 		r.Get("/accounts", h.listAccounts)
-		r.Post("/accounts", h.createAccount)
 		r.Get("/accounts/{id}", h.getAccount)
-		r.Patch("/accounts/{id}", h.updateAccount)
-		r.Post("/accounts/{id}/archive", h.archiveAccount)
 		r.Get("/accounts/{id}/balance", h.getAccountBalance)
 
 		r.Get("/transactions", h.listTransactions)
-		r.Post("/transactions", h.createTransaction)
 		r.Get("/transactions/{id}", h.getTransaction)
-		r.Delete("/transactions/{id}", h.deleteTransaction)
-
-		r.Post("/transfers", h.createTransfer)
 
 		r.Get("/accounts/{id}/interest-rules", h.listInterestRules)
-		r.Post("/accounts/{id}/interest-rules", h.createInterestRule)
-		r.Patch("/interest-rules/{id}", h.updateInterestRule)
-		r.Post("/accounts/{id}/accrue-interest", h.accrueInterest)
-		r.Post("/accounts/{id}/recalculate-interest", h.recalculateInterest)
 
 		r.Get("/dashboard/summary", h.getDashboardSummary)
 		r.Get("/dashboard/net-worth", h.getDashboardNetWorth)
@@ -107,4 +112,25 @@ func NewRouter(store Store, cfg RouterConfig) http.Handler {
 	})
 
 	return r
+}
+
+func (h *Handler) idempotency() repository.IdempotencyRepository {
+	if h.store == nil {
+		return nil
+	}
+	return h.store.Idempotency()
+}
+
+func firstPositive(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
+
+func firstPositiveDuration(value, fallback time.Duration) time.Duration {
+	if value > 0 {
+		return value
+	}
+	return fallback
 }

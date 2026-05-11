@@ -143,6 +143,10 @@ func (r failingTransactionRepo) CreateMany(_ context.Context, _ []models.Transac
 	return r.err
 }
 
+func (r failingTransactionRepo) CreateTransfer(_ context.Context, _, _, _ string, _ []models.Transaction) error {
+	return r.err
+}
+
 func (r failingTransactionRepo) GetByID(_ context.Context, _ string) (*models.Transaction, error) {
 	return nil, r.err
 }

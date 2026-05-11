@@ -28,6 +28,7 @@ type DepositMigrationRepository interface {
 type TransactionRepository interface {
 	Create(ctx context.Context, transaction *models.Transaction) error
 	CreateMany(ctx context.Context, transactions []models.Transaction) error
+	CreateTransfer(ctx context.Context, userID, fromAccountID, toAccountID string, transactions []models.Transaction) error
 	GetByID(ctx context.Context, id string) (*models.Transaction, error)
 	GetByIDForUser(ctx context.Context, id, userID string) (*models.Transaction, error)
 	List(ctx context.Context) ([]models.Transaction, error)
@@ -78,4 +79,10 @@ type RefreshTokenRepository interface {
 
 type AuthAuditRepository interface {
 	Create(ctx context.Context, event *models.AuthAuditEvent) error
+}
+
+type IdempotencyRepository interface {
+	Get(ctx context.Context, key, userID, method, path string) (*models.IdempotencyRecord, error)
+	CreatePending(ctx context.Context, record *models.IdempotencyRecord) (bool, error)
+	Complete(ctx context.Context, key, userID, method, path string, statusCode int, responseBody []byte) error
 }

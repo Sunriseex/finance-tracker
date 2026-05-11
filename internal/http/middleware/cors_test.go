@@ -15,7 +15,7 @@ func TestCORSAllowsConfiguredOrigin(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/accounts", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/v1/accounts", http.NoBody)
 	req.Header.Set("Origin", "http://localhost:5173")
 	rec := httptest.NewRecorder()
 
@@ -41,7 +41,7 @@ func TestCORSRejectsUnknownOriginHeader(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/accounts", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/v1/accounts", http.NoBody)
 	req.Header.Set("Origin", "http://evil.test")
 	rec := httptest.NewRecorder()
 
@@ -61,7 +61,7 @@ func TestCORSAllowsLoopbackDevPortWhenLoopbackOriginConfigured(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/accounts", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/v1/accounts", http.NoBody)
 	req.Header.Set("Origin", "http://127.0.0.1:5174")
 	rec := httptest.NewRecorder()
 
@@ -81,7 +81,7 @@ func TestCORSRejectsNonLoopbackPortMismatch(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/accounts", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/v1/accounts", http.NoBody)
 	req.Header.Set("Origin", "https://app.example.test:5174")
 	rec := httptest.NewRecorder()
 

@@ -492,6 +492,10 @@ func (r *recordingTransactionRepo) CreateMany(context.Context, []models.Transact
 	return nil
 }
 
+func (r *recordingTransactionRepo) CreateTransfer(context.Context, string, string, string, []models.Transaction) error {
+	return nil
+}
+
 func (r *recordingTransactionRepo) GetByID(context.Context, string) (*models.Transaction, error) {
 	return nil, errNotImplemented
 }

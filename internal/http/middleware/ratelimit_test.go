@@ -19,7 +19,7 @@ func TestRateLimitByIPRejectsAfterLimit(t *testing.T) {
 	)
 
 	for i := range 3 {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/accounts", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/accounts", http.NoBody)
 		req.RemoteAddr = "192.0.2.1:1234"
 		rec := httptest.NewRecorder()
 
@@ -44,7 +44,7 @@ func TestRateLimitByIPResetsAfterWindow(t *testing.T) {
 		}),
 	)
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/accounts", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/accounts", http.NoBody)
 	req.RemoteAddr = "192.0.2.1:1234"
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 

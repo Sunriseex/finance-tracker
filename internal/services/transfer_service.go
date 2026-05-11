@@ -21,6 +21,7 @@ func NewTransferService(transactions *TransactionService) *TransferService {
 }
 
 type CreateTransferRequest struct {
+	UserID        string
 	FromAccountID string
 	ToAccountID   string
 	FromCurrency  string
@@ -68,7 +69,7 @@ func (s *TransferService) Create(ctx context.Context, req *CreateTransferRequest
 
 	inRelatedID := fromAccountID
 	outRelatedID := toAccountID
-	created, err := s.transactions.CreateMany(ctx, &CreateTransactionRequest{
+	created, err := s.transactions.CreateTransfer(ctx, strings.TrimSpace(req.UserID), fromAccountID, toAccountID, &CreateTransactionRequest{
 		AccountID:        fromAccountID,
 		RelatedAccountID: &outRelatedID,
 		Type:             models.TransactionTypeTransferOut,

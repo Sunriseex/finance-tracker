@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func newTestStore(t *testing.T) *Store {
 	t.Cleanup(pool.Close)
 
 	if _, err := pool.Exec(ctx, `
-		TRUNCATE interest_accruals, interest_rules, transactions, categories, accounts RESTART IDENTITY CASCADE
+		TRUNCATE idempotency_keys, interest_accruals, interest_rules, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatalf("truncate test tables; run migrations first: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestPostgresRepositoriesIntegration(t *testing.T) {
 	defer pool.Close()
 
 	if _, err := pool.Exec(ctx, `
-		TRUNCATE interest_accruals, interest_rules, transactions, categories, accounts RESTART IDENTITY CASCADE
+		TRUNCATE idempotency_keys, interest_accruals, interest_rules, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatalf("truncate test tables; run migrations first: %v", err)
 	}
@@ -244,7 +245,7 @@ func TestAccountCreateClaimsSingleExistingUser(t *testing.T) {
 	defer pool.Close()
 
 	if _, err := pool.Exec(ctx, `
-		TRUNCATE interest_accruals, interest_rules, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
+		TRUNCATE idempotency_keys, interest_accruals, interest_rules, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatalf("truncate test tables; run migrations first: %v", err)
 	}
@@ -372,4 +373,134 @@ func TestInterestAccrualCreateWithTransactionRollsBackOnAccrualFailure(t *testin
 	if !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("transaction must be rolled back, got err = %v", err)
 	}
+}
+
+func TestTransactionCreateTransferLocksAccountsAndRollsBack(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+	now := time.Now().UTC()
+	userID := uuid.NewString()
+	if err := store.Users().Create(ctx, &models.User{
+		ID:              userID,
+		Email:           "transfer-owner@example.com",
+		PasswordHash:    "hash",
+		PrimaryCurrency: "RUB",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	from := transferTestAccount(t, store, userID, "from")
+	to := transferTestAccount(t, store, userID, "to")
+	transactions := store.Transactions()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for i := range 2 {
+		fromID, toID := from.ID, to.ID
+		if i == 1 {
+			fromID, toID = to.ID, from.ID
+		}
+		wg.Go(func() {
+			relatedTo := toID
+			relatedFrom := fromID
+			errs <- transactions.CreateTransfer(ctx, userID, fromID, toID, []models.Transaction{
+				{
+					ID:               uuid.NewString(),
+					AccountID:        fromID,
+					RelatedAccountID: &relatedTo,
+					Type:             models.TransactionTypeTransferOut,
+					AmountMinor:      100,
+					OccurredAt:       now,
+					CreatedAt:        now,
+				},
+				{
+					ID:               uuid.NewString(),
+					AccountID:        toID,
+					RelatedAccountID: &relatedFrom,
+					Type:             models.TransactionTypeTransferIn,
+					AmountMinor:      100,
+					OccurredAt:       now,
+					CreatedAt:        now,
+				},
+			})
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("create concurrent transfer: %v", err)
+		}
+	}
+
+	got, err := transactions.ListByUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("list transfer transactions: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("transaction count = %d, want 4", len(got))
+	}
+
+	otherUserID := uuid.NewString()
+	if err := store.Users().Create(ctx, &models.User{
+		ID:              otherUserID,
+		Email:           "other@example.com",
+		PasswordHash:    "hash",
+		PrimaryCurrency: "RUB",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("create other user: %v", err)
+	}
+	otherAccount := transferTestAccount(t, store, otherUserID, "other")
+	err = transactions.CreateTransfer(ctx, userID, from.ID, otherAccount.ID, []models.Transaction{
+		{
+			ID:          uuid.NewString(),
+			AccountID:   from.ID,
+			Type:        models.TransactionTypeTransferOut,
+			AmountMinor: 100,
+			OccurredAt:  now,
+			CreatedAt:   now,
+		},
+		{
+			ID:          uuid.NewString(),
+			AccountID:   otherAccount.ID,
+			Type:        models.TransactionTypeTransferIn,
+			AmountMinor: 100,
+			OccurredAt:  now,
+			CreatedAt:   now,
+		},
+	})
+	if !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("wrong owner err = %v, want ErrNotFound", err)
+	}
+	got, err = transactions.ListByUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("list after failed transfer: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("failed transfer inserted rows, count = %d, want 4", len(got))
+	}
+}
+
+func transferTestAccount(t *testing.T, store *Store, userID, name string) *models.Account {
+	t.Helper()
+	now := time.Now().UTC()
+	account := &models.Account{
+		ID:          uuid.NewString(),
+		OwnerUserID: &userID,
+		Name:        name,
+		Type:        models.AccountTypeSavings,
+		Currency:    "RUB",
+		IsActive:    true,
+		OpenedAt:    now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := store.Accounts().Create(t.Context(), account); err != nil {
+		t.Fatalf("create account %s: %v", name, err)
+	}
+	return account
 }

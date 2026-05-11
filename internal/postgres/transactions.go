@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -41,6 +42,51 @@ func (r *TransactionRepository) CreateMany(ctx context.Context, transactions []m
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit create transactions: %w", err)
+	}
+	return nil
+}
+
+func (r *TransactionRepository) CreateTransfer(ctx context.Context, userID, fromAccountID, toAccountID string, transactions []models.Transaction) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin create transfer: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	accountIDs := []string{fromAccountID, toAccountID}
+	slices.Sort(accountIDs)
+	rows, err := tx.Query(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE id IN ($1, $2) AND owner_user_id = $3
+		ORDER BY id
+		FOR UPDATE
+	`, accountIDs[0], accountIDs[1], userID)
+	if err != nil {
+		return fmt.Errorf("lock transfer accounts: %w", err)
+	}
+	var locked int
+	for rows.Next() {
+		locked++
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("lock transfer accounts rows: %w", err)
+	}
+	rows.Close()
+	if locked != 2 {
+		return fmt.Errorf("lock transfer accounts: %w", repository.ErrNotFound)
+	}
+
+	for i := range transactions {
+		if err := insertTransaction(ctx, tx, &transactions[i]); err != nil {
+			return fmt.Errorf("create transfer transaction %s: %w", transactions[i].ID, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit create transfer: %w", err)
 	}
 	return nil
 }

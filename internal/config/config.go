@@ -14,20 +14,24 @@ import (
 )
 
 type Config struct {
-	TelegramToken      string
-	TelegramUserID     int64
-	AppVersion         string
-	DataPath           string
-	DepositsDataPath   string
-	DatabaseURL        string
-	APIAuthToken       string
-	JWTSecret          string
-	AccessTokenTTL     time.Duration
-	RefreshTokenTTL    time.Duration
-	CORSAllowedOrigins []string
-	RateLimitRequests  int
-	RateLimitWindow    time.Duration
-	LogLevel           slog.Level
+	TelegramToken             string
+	TelegramUserID            int64
+	AppVersion                string
+	DataPath                  string
+	DepositsDataPath          string
+	DatabaseURL               string
+	APIAuthToken              string
+	JWTSecret                 string
+	AccessTokenTTL            time.Duration
+	RefreshTokenTTL           time.Duration
+	CORSAllowedOrigins        []string
+	RateLimitRequests         int
+	RateLimitWindow           time.Duration
+	AuthRateLimitRequests     int
+	AuthRateLimitWindow       time.Duration
+	MutationRateLimitRequests int
+	MutationRateLimitWindow   time.Duration
+	LogLevel                  slog.Level
 }
 
 var AppConfig *Config
@@ -95,8 +99,12 @@ func Init() error {
 			"http://localhost:5173",
 			"http://127.0.0.1:5173",
 		}),
-		RateLimitRequests: getEnvInt("RATE_LIMIT_REQUESTS", 120),
-		RateLimitWindow:   getEnvDuration("RATE_LIMIT_WINDOW", time.Minute),
+		RateLimitRequests:         getEnvInt("RATE_LIMIT_REQUESTS", 120),
+		RateLimitWindow:           getEnvDuration("RATE_LIMIT_WINDOW", time.Minute),
+		AuthRateLimitRequests:     getEnvInt("AUTH_RATE_LIMIT_REQUESTS", 5),
+		AuthRateLimitWindow:       getEnvDuration("AUTH_RATE_LIMIT_WINDOW", time.Minute),
+		MutationRateLimitRequests: getEnvInt("MUTATION_RATE_LIMIT_REQUESTS", 60),
+		MutationRateLimitWindow:   getEnvDuration("MUTATION_RATE_LIMIT_WINDOW", time.Minute),
 	}
 
 	initLogger(logLevel)

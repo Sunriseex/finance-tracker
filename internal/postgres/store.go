@@ -51,6 +51,10 @@ func (s *Store) AuthAuditEvents() repository.AuthAuditRepository {
 	return NewAuthAuditRepository(s.pool)
 }
 
+func (s *Store) Idempotency() repository.IdempotencyRepository {
+	return NewIdempotencyRepository(s.pool)
+}
+
 func mapNotFound(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return repository.ErrNotFound

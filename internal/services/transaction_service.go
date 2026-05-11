@@ -68,6 +68,25 @@ func (s *TransactionService) CreateMany(ctx context.Context, reqs ...*CreateTran
 	return transactions, nil
 }
 
+func (s *TransactionService) CreateTransfer(ctx context.Context, userID, fromAccountID, toAccountID string, reqs ...*CreateTransactionRequest) ([]models.Transaction, error) {
+	transactions := make([]models.Transaction, 0, len(reqs))
+	for _, req := range reqs {
+		transaction, err := buildTransaction(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		transactions = append(transactions, *transaction)
+	}
+
+	if s.repo != nil {
+		if err := s.repo.CreateTransfer(ctx, userID, fromAccountID, toAccountID, transactions); err != nil {
+			return nil, fmt.Errorf("save transfer transactions: %w", err)
+		}
+	}
+
+	return transactions, nil
+}
+
 func buildTransaction(ctx context.Context, req *CreateTransactionRequest) (*models.Transaction, error) {
 	select {
 	case <-ctx.Done():

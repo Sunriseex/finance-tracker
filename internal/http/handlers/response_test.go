@@ -18,7 +18,7 @@ func TestDecodeOptionalJSONAllowsEmptyBody(t *testing.T) {
 	req := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"/api/accounts/account-1/accrue-interest",
+		"/api/v1/accounts/account-1/accrue-interest",
 		http.NoBody,
 	)
 
@@ -39,7 +39,7 @@ func TestDecodeOptionalJSONDecodesValidBody(t *testing.T) {
 	req := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"/api/accounts/account-1/accrue-interest",
+		"/api/v1/accounts/account-1/accrue-interest",
 		strings.NewReader(`{"rule_id":"rule-1","date":"2026-05-06"}`),
 	)
 
@@ -60,7 +60,7 @@ func TestDecodeOptionalJSONRejectsMalformedBody(t *testing.T) {
 	req := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"/api/accounts/account-1/accrue-interest",
+		"/api/v1/accounts/account-1/accrue-interest",
 		strings.NewReader(`{"rule_id":`),
 	)
 
@@ -74,7 +74,7 @@ func TestDecodeOptionalJSONRejectsUnknownFields(t *testing.T) {
 	req := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"/api/accounts/account-1/accrue-interest",
+		"/api/v1/accounts/account-1/accrue-interest",
 		strings.NewReader(`{"unknown":true}`),
 	)
 
@@ -88,7 +88,7 @@ func TestDecodeJSONRejectsTrailingData(t *testing.T) {
 	req := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"/api/accounts",
+		"/api/v1/accounts",
 		strings.NewReader(`{"name":"A"}{"name":"B"}`),
 	)
 
@@ -105,7 +105,7 @@ func TestDecodeJSONRejectsUnknownFields(t *testing.T) {
 	req := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"/api/accounts",
+		"/api/v1/accounts",
 		strings.NewReader(`{"name":"A","unknown":true}`),
 	)
 
