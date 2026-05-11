@@ -53,10 +53,27 @@ func TestRunTransactionsCreateRejectsTransferTypes(t *testing.T) {
 	}
 }
 
-func TestResolveOwnerUserIDRequiresOwnerAfterSetup(t *testing.T) {
+func TestResolveOwnerUserIDAllowsImplicitOwnerForSingleUser(t *testing.T) {
 	users := &fakeCLIUserRepo{
 		byID: map[string]*models.User{
 			"user-1": {ID: "user-1", Email: "user@example.com"},
+		},
+	}
+
+	ownerUserID, err := resolveOwnerUserID(t.Context(), users, "")
+	if err != nil {
+		t.Fatalf("resolve owner user id: %v", err)
+	}
+	if ownerUserID != "" {
+		t.Fatalf("owner user id = %q, want empty for repository single-user fallback", ownerUserID)
+	}
+}
+
+func TestResolveOwnerUserIDRequiresOwnerForMultipleUsers(t *testing.T) {
+	users := &fakeCLIUserRepo{
+		byID: map[string]*models.User{
+			"user-1": {ID: "user-1", Email: "one@example.com"},
+			"user-2": {ID: "user-2", Email: "two@example.com"},
 		},
 	}
 
@@ -64,8 +81,8 @@ func TestResolveOwnerUserIDRequiresOwnerAfterSetup(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "owner-user-id is required") {
-		t.Fatalf("error = %q, want owner-user-id requirement", err.Error())
+	if !strings.Contains(err.Error(), "owner-user-id is required when multiple users exist") {
+		t.Fatalf("error = %q, want multiple-user owner requirement", err.Error())
 	}
 }
 
