@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"errors"
+	"expvar"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -491,6 +493,19 @@ func TestAuthServiceRevokeSessionScopesByUser(t *testing.T) {
 	}
 }
 
+func TestAuthServiceAuditEventRecordsMetric(t *testing.T) {
+	service, _, _, _ := newTestAuthService(t)
+	key := authEventMetricKey("login_failed", false, "invalid_credentials")
+	before := authMetricValue(t, key)
+
+	service.auditEvent(t.Context(), "login_failed", "user@example.com", nil, false, "invalid_credentials")
+
+	after := authMetricValue(t, key)
+	if after != before+1 {
+		t.Fatalf("metric = %d, want %d", after, before+1)
+	}
+}
+
 func newTestAuthService(t *testing.T) (*AuthService, *fakeUserRepo, *fakeRefreshRepo, *fakeAuditRepo) {
 	t.Helper()
 
@@ -691,4 +706,22 @@ func (r *fakeAuditRepo) hasEventReason(eventType, reason string) bool {
 		}
 	}
 	return false
+}
+
+func authMetricValue(t *testing.T, key string) int64 {
+	t.Helper()
+
+	metrics, ok := expvar.Get("capitalflow_auth_events_total").(*expvar.Map)
+	if !ok {
+		t.Fatal("missing auth metrics map")
+	}
+	value := metrics.Get(key)
+	if value == nil {
+		return 0
+	}
+	count, err := strconv.ParseInt(value.String(), 10, 64)
+	if err != nil {
+		t.Fatalf("parse metric value %q: %v", value.String(), err)
+	}
+	return count
 }

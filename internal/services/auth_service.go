@@ -533,6 +533,8 @@ func loginLockoutUntil(now time.Time, attempts int) *time.Time {
 }
 
 func (s *AuthService) auditEvent(ctx context.Context, eventType, email string, userID *string, success bool, reason string) {
+	recordAuthEventMetric(eventType, success, reason)
+
 	if s.audit == nil {
 		return
 	}

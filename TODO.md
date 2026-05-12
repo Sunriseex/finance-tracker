@@ -625,8 +625,8 @@ internal/domain
 * [x] Middleware JWT -> `userID` в context
 * [x] Unit + handler + security tests (включая reuse)
 * [ ] Observability:
-  * [ ] метрики для auth
-  * [ ] алерты для auth incidents
+  * [x] метрики для auth
+  * [x] алерты для auth incidents
 * [ ] Документация:
   * [ ] Security Model
   * [ ] Runbook
@@ -639,7 +639,7 @@ internal/domain
 * [x] Suspicious login attempts приводят к progressive lockout
 * [x] Пользователь может завершить все активные сессии
 * [x] Все auth-события попадают в audit log
-* [ ] Auth security покрыт тестами и метриками
+* [x] Auth security покрыт тестами и метриками
 * [ ] Есть документация для эксплуатации и incident response
 
 ---

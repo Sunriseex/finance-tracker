@@ -31,6 +31,21 @@ func TestRouterUsesAPIV1Only(t *testing.T) {
 	}
 }
 
+func TestMetricsEndpointExposesAuthCounters(t *testing.T) {
+	router := NewRouter(newTestProfileStore(), &RouterConfig{})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "capitalflow_auth_events_total") {
+		t.Fatalf("response body = %s", rec.Body.String())
+	}
+}
+
 func TestRouterLimitsAuthEndpoints(t *testing.T) {
 	router := NewRouter(newTestProfileStore(), &RouterConfig{
 		APIAuthToken:          "test-token",
