@@ -10,6 +10,8 @@ type User struct {
 	EmailVerifiedAt            *time.Time `json:"email_verified_at,omitzero"`
 	EmailVerificationTokenHash *string    `json:"-"`
 	EmailVerificationSentAt    *time.Time `json:"email_verification_sent_at,omitzero"`
+	FailedLoginAttempts        int        `json:"-"`
+	LockedUntil                *time.Time `json:"-"`
 	CreatedAt                  time.Time  `json:"created_at"`
 	UpdatedAt                  time.Time  `json:"updated_at"`
 }

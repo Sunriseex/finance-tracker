@@ -27,10 +27,10 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 		INSERT INTO users (
 			id, email, password_hash, primary_currency,
 			email_verified_at, email_verification_token_hash, email_verification_sent_at,
-			created_at, updated_at
+			failed_login_attempts, locked_until, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, user.ID, user.Email, user.PasswordHash, user.PrimaryCurrency, user.EmailVerifiedAt, user.EmailVerificationTokenHash, user.EmailVerificationSentAt, user.CreatedAt, user.UpdatedAt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, user.ID, user.Email, user.PasswordHash, user.PrimaryCurrency, user.EmailVerifiedAt, user.EmailVerificationTokenHash, user.EmailVerificationSentAt, user.FailedLoginAttempts, user.LockedUntil, user.CreatedAt, user.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("create user: %w", repository.ErrConflict)
@@ -52,6 +52,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*models.
 	return r.get(ctx, `
 		SELECT id, email, password_hash, primary_currency,
 			email_verified_at, email_verification_token_hash, email_verification_sent_at,
+			failed_login_attempts, locked_until,
 			created_at, updated_at
 		FROM users
 		WHERE lower(email) = lower($1)
@@ -62,6 +63,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*models.User, 
 	return r.get(ctx, `
 		SELECT id, email, password_hash, primary_currency,
 			email_verified_at, email_verification_token_hash, email_verification_sent_at,
+			failed_login_attempts, locked_until,
 			created_at, updated_at
 		FROM users
 		WHERE id = $1
@@ -76,6 +78,30 @@ func (r *UserRepository) UpdatePrimaryCurrency(ctx context.Context, id, primaryC
 	`, id, primaryCurrency, updatedAt)
 	if err != nil {
 		return fmt.Errorf("update user primary currency: %w", err)
+	}
+	return nil
+}
+
+func (r *UserRepository) RecordLoginFailure(ctx context.Context, id string, attempts int, lockedUntil *time.Time, updatedAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users
+		SET failed_login_attempts = $2, locked_until = $3, updated_at = $4
+		WHERE id = $1
+	`, id, attempts, lockedUntil, updatedAt)
+	if err != nil {
+		return fmt.Errorf("record login failure: %w", err)
+	}
+	return nil
+}
+
+func (r *UserRepository) ClearLoginFailures(ctx context.Context, id string, updatedAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users
+		SET failed_login_attempts = 0, locked_until = NULL, updated_at = $2
+		WHERE id = $1
+	`, id, updatedAt)
+	if err != nil {
+		return fmt.Errorf("clear login failures: %w", err)
 	}
 	return nil
 }
@@ -172,6 +198,8 @@ func scanUser(row userScanner) (*models.User, error) {
 		&user.EmailVerifiedAt,
 		&user.EmailVerificationTokenHash,
 		&user.EmailVerificationSentAt,
+		&user.FailedLoginAttempts,
+		&user.LockedUntil,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	); err != nil {

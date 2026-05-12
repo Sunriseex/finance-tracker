@@ -612,7 +612,7 @@ internal/domain
 
 * [x] Reuse Detection для refresh token
 * [x] Политика сложности пароля (`zxcvbn`)
-* [ ] Account lockout с нарастающей задержкой
+* [x] Account lockout с нарастающей задержкой
 * [ ] Смена пароля + выход со всех устройств
 * [ ] Управление сессиями (список, отзыв)
 * [x] Подготовка email-поля и верификации (схема)
@@ -636,7 +636,7 @@ internal/domain
 
 * [x] Reused refresh token немедленно инвалидирует session family
 * [x] Password policy блокирует слабые и компрометированные пароли
-* [ ] Suspicious login attempts приводят к progressive lockout
+* [x] Suspicious login attempts приводят к progressive lockout
 * [ ] Пользователь может завершить все активные сессии
 * [ ] Все auth-события попадают в audit log
 * [ ] Auth security покрыт тестами и метриками

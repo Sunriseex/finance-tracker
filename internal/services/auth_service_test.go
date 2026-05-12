@@ -127,6 +127,98 @@ func TestAuthServiceLoginRejectsWrongPasswordWithSafeMessage(t *testing.T) {
 	if !audit.hasEvent("login_failed") {
 		t.Fatal("expected login failed audit event")
 	}
+	if users.byID["user-1"].FailedLoginAttempts != 1 {
+		t.Fatalf("failed attempts = %d, want 1", users.byID["user-1"].FailedLoginAttempts)
+	}
+}
+
+func TestAuthServiceLoginProgressivelyLocksAccount(t *testing.T) {
+	service, users, _, audit := newTestAuthService(t)
+	users.byID["user-1"] = &models.User{
+		ID:                  "user-1",
+		Email:               "user@example.com",
+		PasswordHash:        "hash:correct horse battery staple",
+		FailedLoginAttempts: loginLockoutThreshold - 1,
+	}
+
+	_, err := service.Login(t.Context(), AuthRequest{
+		Email:    "user@example.com",
+		Password: "wrong password",
+	})
+	if err == nil || err.Error() != "invalid email or password" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	user := users.byID["user-1"]
+	if user.FailedLoginAttempts != loginLockoutThreshold {
+		t.Fatalf("failed attempts = %d, want %d", user.FailedLoginAttempts, loginLockoutThreshold)
+	}
+	if user.LockedUntil == nil {
+		t.Fatal("expected account lock")
+	}
+	wantLockedUntil := service.now().Add(5 * time.Minute)
+	if !user.LockedUntil.Equal(wantLockedUntil) {
+		t.Fatalf("locked_until = %s, want %s", user.LockedUntil, wantLockedUntil)
+	}
+	if !audit.hasEventReason("login_failed", "account_locked") {
+		t.Fatal("expected account_locked audit event")
+	}
+}
+
+func TestAuthServiceLoginRejectsActiveLockout(t *testing.T) {
+	service, users, _, audit := newTestAuthService(t)
+	lockedUntil := service.now().Add(time.Minute)
+	users.byID["user-1"] = &models.User{
+		ID:                  "user-1",
+		Email:               "user@example.com",
+		PasswordHash:        "hash:correct horse battery staple",
+		FailedLoginAttempts: loginLockoutThreshold,
+		LockedUntil:         &lockedUntil,
+	}
+
+	_, err := service.Login(t.Context(), AuthRequest{
+		Email:    "user@example.com",
+		Password: "correct horse battery staple",
+	})
+	if err == nil || err.Error() != "invalid email or password" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(users.byID) != 1 || users.byID["user-1"].FailedLoginAttempts != loginLockoutThreshold {
+		t.Fatal("expected lockout to remain unchanged")
+	}
+	if !audit.hasEventReason("login_failed", "account_locked") {
+		t.Fatal("expected account_locked audit event")
+	}
+}
+
+func TestAuthServiceLoginClearsFailuresOnSuccess(t *testing.T) {
+	service, users, _, audit := newTestAuthService(t)
+	lockedUntil := service.now().Add(-time.Minute)
+	users.byID["user-1"] = &models.User{
+		ID:                  "user-1",
+		Email:               "user@example.com",
+		PasswordHash:        "hash:correct horse battery staple",
+		FailedLoginAttempts: 3,
+		LockedUntil:         &lockedUntil,
+	}
+
+	session, err := service.Login(t.Context(), AuthRequest{
+		Email:    "user@example.com",
+		Password: "correct horse battery staple",
+	})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if session.AccessToken == "" {
+		t.Fatal("expected access token")
+	}
+	user := users.byID["user-1"]
+	if user.FailedLoginAttempts != 0 || user.LockedUntil != nil {
+		t.Fatalf("expected login failures cleared, got attempts=%d lockedUntil=%v", user.FailedLoginAttempts, user.LockedUntil)
+	}
+	if !audit.hasEvent("login_success") {
+		t.Fatal("expected login success audit event")
+	}
 }
 
 func TestAuthServiceRefreshRotatesToken(t *testing.T) {
@@ -302,6 +394,28 @@ func (r *fakeUserRepo) GetByID(_ context.Context, id string) (*models.User, erro
 	return user, nil
 }
 
+func (r *fakeUserRepo) RecordLoginFailure(_ context.Context, id string, attempts int, lockedUntil *time.Time, updatedAt time.Time) error {
+	user, ok := r.byID[id]
+	if !ok {
+		return repository.ErrNotFound
+	}
+	user.FailedLoginAttempts = attempts
+	user.LockedUntil = lockedUntil
+	user.UpdatedAt = updatedAt
+	return nil
+}
+
+func (r *fakeUserRepo) ClearLoginFailures(_ context.Context, id string, updatedAt time.Time) error {
+	user, ok := r.byID[id]
+	if !ok {
+		return repository.ErrNotFound
+	}
+	user.FailedLoginAttempts = 0
+	user.LockedUntil = nil
+	user.UpdatedAt = updatedAt
+	return nil
+}
+
 func (r *fakeUserRepo) UpdatePrimaryCurrency(_ context.Context, id, primaryCurrency string, updatedAt time.Time) error {
 	user, ok := r.byID[id]
 	if !ok {
@@ -376,6 +490,15 @@ func (r *fakeAuditRepo) Create(_ context.Context, event *models.AuthAuditEvent) 
 func (r *fakeAuditRepo) hasEvent(eventType string) bool {
 	for _, event := range r.events {
 		if event.EventType == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *fakeAuditRepo) hasEventReason(eventType, reason string) bool {
+	for _, event := range r.events {
+		if event.EventType == eventType && event.Reason == reason {
 			return true
 		}
 	}

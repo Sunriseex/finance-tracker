@@ -18,6 +18,16 @@ import (
 	"github.com/sunriseex/capitalflow/pkg/security"
 )
 
+const loginLockoutThreshold = 5
+
+var loginLockoutDelays = []time.Duration{
+	5 * time.Minute,
+	15 * time.Minute,
+	time.Hour,
+	6 * time.Hour,
+	24 * time.Hour,
+}
+
 type AuthService struct {
 	users        repository.UserRepository
 	refresh      repository.RefreshTokenRepository
@@ -139,13 +149,37 @@ func (s *AuthService) Login(ctx context.Context, req AuthRequest) (*AuthSession,
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
+	now := s.now()
+	if user.LockedUntil != nil && now.Before(*user.LockedUntil) {
+		s.auditEvent(ctx, "login_failed", email, &user.ID, false, "account_locked")
+		return nil, validationError("invalid email or password")
+	}
+
 	ok, err := s.verifyFunc(req.Password, user.PasswordHash)
 	if err != nil {
 		return nil, fmt.Errorf("verify password: %w", err)
 	}
 	if !ok {
-		s.auditEvent(ctx, "login_failed", email, &user.ID, false, "invalid_credentials")
+		attempts := user.FailedLoginAttempts + 1
+		lockedUntil := loginLockoutUntil(now, attempts)
+		if err := s.users.RecordLoginFailure(ctx, user.ID, attempts, lockedUntil, now); err != nil {
+			return nil, fmt.Errorf("record login failure: %w", err)
+		}
+		reason := "invalid_credentials"
+		if lockedUntil != nil {
+			reason = "account_locked"
+		}
+		s.auditEvent(ctx, "login_failed", email, &user.ID, false, reason)
 		return nil, validationError("invalid email or password")
+	}
+
+	if user.FailedLoginAttempts > 0 || user.LockedUntil != nil {
+		if err := s.users.ClearLoginFailures(ctx, user.ID, now); err != nil {
+			return nil, fmt.Errorf("clear login failures: %w", err)
+		}
+		user.FailedLoginAttempts = 0
+		user.LockedUntil = nil
+		user.UpdatedAt = now
 	}
 
 	session, err := s.issueSession(ctx, user)
@@ -349,6 +383,14 @@ func passwordUserInputs(email string) []string {
 		inputs = append(inputs, local, domain)
 	}
 	return inputs
+}
+
+func loginLockoutUntil(now time.Time, attempts int) *time.Time {
+	if attempts < loginLockoutThreshold {
+		return nil
+	}
+	delayIndex := min(attempts-loginLockoutThreshold, len(loginLockoutDelays)-1)
+	return new(now.Add(loginLockoutDelays[delayIndex]))
 }
 
 func (s *AuthService) auditEvent(ctx context.Context, eventType, email string, userID *string, success bool, reason string) {
