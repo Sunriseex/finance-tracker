@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sunriseex/capitalflow/internal/http/dto"
 	appmiddleware "github.com/sunriseex/capitalflow/internal/http/middleware"
 	"github.com/sunriseex/capitalflow/internal/models"
@@ -117,6 +119,36 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
+	claims, ok := appmiddleware.ClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Unauthorized", nil)
+		return
+	}
+
+	sessions, err := h.authService().ListSessions(r.Context(), claims.UserID, claims.SessionID)
+	if err != nil {
+		writeValidationOrServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, authSessionsResponse(sessions))
+}
+
+func (h *Handler) revokeSession(w http.ResponseWriter, r *http.Request) {
+	userID, ok := appmiddleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Unauthorized", nil)
+		return
+	}
+
+	sessionID := chi.URLParam(r, "id")
+	if err := h.authService().RevokeSession(r.Context(), userID, sessionID); err != nil {
+		writeValidationOrServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) authService() *services.AuthService {
 	return services.NewAuthService(
 		h.store.Users(),
@@ -142,6 +174,23 @@ func authUser(user *models.User) dto.AuthUser {
 		Email:           user.Email,
 		PrimaryCurrency: user.PrimaryCurrency,
 	}
+}
+
+func authSessionsResponse(sessions []services.SessionInfo) dto.AuthSessionsResponse {
+	response := dto.AuthSessionsResponse{
+		Sessions: make([]dto.AuthSessionInfo, 0, len(sessions)),
+	}
+	for _, session := range sessions {
+		response.Sessions = append(response.Sessions, dto.AuthSessionInfo{
+			ID:        session.ID,
+			ExpiresAt: session.ExpiresAt,
+			RevokedAt: session.RevokedAt,
+			CreatedAt: session.CreatedAt,
+			Active:    session.Active,
+			Current:   session.Current,
+		})
+	}
+	return response
 }
 
 const refreshCookieName = "__Secure-capitalflow_refresh"

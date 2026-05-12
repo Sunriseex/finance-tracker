@@ -81,6 +81,15 @@ type AuthSession struct {
 	RefreshExpiresAt time.Time
 }
 
+type SessionInfo struct {
+	ID        string
+	ExpiresAt time.Time
+	RevokedAt *time.Time
+	CreatedAt time.Time
+	Active    bool
+	Current   bool
+}
+
 func (s *AuthService) Setup(ctx context.Context, req AuthRequest) (*AuthSession, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("setup auth: %w", err)
@@ -339,6 +348,63 @@ func (s *AuthService) ChangePassword(ctx context.Context, req ChangePasswordRequ
 		return fmt.Errorf("revoke user refresh tokens: %w", err)
 	}
 	s.auditEvent(ctx, "change_password_success", user.Email, &user.ID, true, "")
+	return nil
+}
+
+func (s *AuthService) ListSessions(ctx context.Context, userID, currentRefreshTokenID string) ([]SessionInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	if s.refresh == nil {
+		return nil, fmt.Errorf("auth service is not configured")
+	}
+
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, validationError("user is required")
+	}
+
+	tokens, err := s.refresh.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list refresh tokens: %w", err)
+	}
+
+	now := s.now()
+	sessions := make([]SessionInfo, 0, len(tokens))
+	for _, token := range tokens {
+		sessions = append(sessions, SessionInfo{
+			ID:        token.ID,
+			ExpiresAt: token.ExpiresAt,
+			RevokedAt: token.RevokedAt,
+			CreatedAt: token.CreatedAt,
+			Active:    token.IsActive(now),
+			Current:   token.ID == currentRefreshTokenID,
+		})
+	}
+	return sessions, nil
+}
+
+func (s *AuthService) RevokeSession(ctx context.Context, userID, sessionID string) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("revoke session: %w", err)
+	}
+	if s.refresh == nil {
+		return fmt.Errorf("auth service is not configured")
+	}
+
+	userID = strings.TrimSpace(userID)
+	sessionID = strings.TrimSpace(sessionID)
+	if userID == "" {
+		return validationError("user is required")
+	}
+	if sessionID == "" {
+		return validationError("session is required")
+	}
+
+	if err := s.refresh.RevokeByUserSession(ctx, userID, sessionID, s.now()); err != nil {
+		return fmt.Errorf("revoke session: %w", err)
+	}
+	s.auditEvent(ctx, "session_revoked", "", &userID, true, "")
 	return nil
 }
 

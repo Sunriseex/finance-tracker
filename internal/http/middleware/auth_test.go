@@ -140,7 +140,15 @@ func (r *testRefreshRepo) GetByHash(context.Context, string) (*models.RefreshTok
 	return nil, repository.ErrNotFound
 }
 
+func (r *testRefreshRepo) ListByUser(context.Context, string) ([]models.RefreshToken, error) {
+	return nil, nil
+}
+
 func (r *testRefreshRepo) Revoke(context.Context, string, time.Time) error {
+	return nil
+}
+
+func (r *testRefreshRepo) RevokeByUserSession(context.Context, string, string, time.Time) error {
 	return nil
 }
 

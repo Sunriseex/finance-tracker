@@ -93,6 +93,7 @@ func NewRouter(store Store, cfg *RouterConfig) http.Handler {
 
 		r.With(appmiddleware.MutationOnly(mutationRateLimit), appmiddleware.Idempotency(h.idempotency())).Group(func(r chi.Router) {
 			r.Post("/auth/password", h.changePassword)
+			r.Delete("/auth/sessions/{id}", h.revokeSession)
 			r.Patch("/settings/profile", h.updateProfile)
 			r.Post("/accounts", h.createAccount)
 			r.Patch("/accounts/{id}", h.updateAccount)
@@ -107,6 +108,7 @@ func NewRouter(store Store, cfg *RouterConfig) http.Handler {
 		})
 
 		r.Get("/categories", h.listCategories)
+		r.Get("/auth/sessions", h.listSessions)
 		r.Get("/currency-rates", h.getCurrencyRates)
 		r.Get("/settings/profile", h.getProfile)
 

@@ -169,6 +169,32 @@ func (r *RefreshTokenRepository) GetByHash(ctx context.Context, tokenHash string
 	return token, nil
 }
 
+func (r *RefreshTokenRepository) ListByUser(ctx context.Context, userID string) ([]models.RefreshToken, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, user_id, token_hash, expires_at, revoked_at, created_at
+		FROM refresh_tokens
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list refresh tokens: %w", err)
+	}
+	defer rows.Close()
+
+	tokens := []models.RefreshToken{}
+	for rows.Next() {
+		token, err := scanRefreshToken(rows)
+		if err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, *token)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list refresh tokens rows: %w", err)
+	}
+	return tokens, nil
+}
+
 func (r *RefreshTokenRepository) Revoke(ctx context.Context, id string, revokedAt time.Time) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE refresh_tokens
@@ -180,6 +206,21 @@ func (r *RefreshTokenRepository) Revoke(ctx context.Context, id string, revokedA
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("revoke refresh token: %w", repository.ErrNotFound)
+	}
+	return nil
+}
+
+func (r *RefreshTokenRepository) RevokeByUserSession(ctx context.Context, userID, id string, revokedAt time.Time) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE refresh_tokens
+		SET revoked_at = $3
+		WHERE user_id = $1 AND id = $2 AND revoked_at IS NULL
+	`, userID, id, revokedAt)
+	if err != nil {
+		return fmt.Errorf("revoke user refresh token: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("revoke user refresh token: %w", repository.ErrNotFound)
 	}
 	return nil
 }

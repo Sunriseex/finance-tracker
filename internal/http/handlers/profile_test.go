@@ -287,9 +287,28 @@ func (r *testProfileRefreshRepo) GetByHash(_ context.Context, tokenHash string) 
 	return nil, repository.ErrNotFound
 }
 
+func (r *testProfileRefreshRepo) ListByUser(_ context.Context, userID string) ([]models.RefreshToken, error) {
+	tokens := []models.RefreshToken{}
+	for _, token := range r.byID {
+		if token.UserID == userID {
+			tokens = append(tokens, *token)
+		}
+	}
+	return tokens, nil
+}
+
 func (r *testProfileRefreshRepo) Revoke(_ context.Context, id string, revokedAt time.Time) error {
 	token, ok := r.byID[id]
 	if !ok {
+		return repository.ErrNotFound
+	}
+	token.RevokedAt = &revokedAt
+	return nil
+}
+
+func (r *testProfileRefreshRepo) RevokeByUserSession(_ context.Context, userID, id string, revokedAt time.Time) error {
+	token, ok := r.byID[id]
+	if !ok || token.UserID != userID || token.RevokedAt != nil {
 		return repository.ErrNotFound
 	}
 	token.RevokedAt = &revokedAt

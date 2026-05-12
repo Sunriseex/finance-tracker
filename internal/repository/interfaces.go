@@ -76,7 +76,9 @@ type RefreshTokenRepository interface {
 	Create(ctx context.Context, token *models.RefreshToken) error
 	GetByID(ctx context.Context, id string) (*models.RefreshToken, error)
 	GetByHash(ctx context.Context, tokenHash string) (*models.RefreshToken, error)
+	ListByUser(ctx context.Context, userID string) ([]models.RefreshToken, error)
 	Revoke(ctx context.Context, id string, revokedAt time.Time) error
+	RevokeByUserSession(ctx context.Context, userID, id string, revokedAt time.Time) error
 	RevokeByUser(ctx context.Context, userID string, revokedAt time.Time) error
 }
 

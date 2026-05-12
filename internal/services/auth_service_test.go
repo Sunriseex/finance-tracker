@@ -405,6 +405,86 @@ func TestAuthServiceChangePasswordRejectsWrongCurrentPassword(t *testing.T) {
 	}
 }
 
+func TestAuthServiceListSessionsMarksCurrentAndActive(t *testing.T) {
+	service, _, refresh, _ := newTestAuthService(t)
+	expiredAt := service.now().Add(-time.Hour)
+	revokedAt := service.now().Add(-time.Minute)
+	refresh.byHash["active"] = &models.RefreshToken{
+		ID:        "session-1",
+		UserID:    "user-1",
+		TokenHash: "active",
+		ExpiresAt: service.now().Add(time.Hour),
+		CreatedAt: service.now(),
+	}
+	refresh.byHash["revoked"] = &models.RefreshToken{
+		ID:        "session-2",
+		UserID:    "user-1",
+		TokenHash: "revoked",
+		ExpiresAt: service.now().Add(time.Hour),
+		RevokedAt: &revokedAt,
+		CreatedAt: service.now().Add(-time.Minute),
+	}
+	refresh.byHash["expired"] = &models.RefreshToken{
+		ID:        "session-3",
+		UserID:    "user-1",
+		TokenHash: "expired",
+		ExpiresAt: expiredAt,
+		CreatedAt: service.now().Add(-2 * time.Minute),
+	}
+	refresh.byHash["other"] = &models.RefreshToken{
+		ID:        "session-4",
+		UserID:    "user-2",
+		TokenHash: "other",
+		ExpiresAt: service.now().Add(time.Hour),
+		CreatedAt: service.now(),
+	}
+
+	sessions, err := service.ListSessions(t.Context(), "user-1", "session-1")
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(sessions) != 3 {
+		t.Fatalf("sessions count = %d, want 3", len(sessions))
+	}
+	if !sessions[0].Current || !sessions[0].Active {
+		t.Fatalf("first session = %+v, want current active", sessions[0])
+	}
+	if sessions[1].Active {
+		t.Fatalf("revoked session = %+v, want inactive", sessions[1])
+	}
+	if sessions[2].Active {
+		t.Fatalf("expired session = %+v, want inactive", sessions[2])
+	}
+}
+
+func TestAuthServiceRevokeSessionScopesByUser(t *testing.T) {
+	service, _, refresh, audit := newTestAuthService(t)
+	refresh.byHash["active"] = &models.RefreshToken{
+		ID:        "session-1",
+		UserID:    "user-1",
+		TokenHash: "active",
+		ExpiresAt: service.now().Add(time.Hour),
+		CreatedAt: service.now(),
+	}
+
+	if err := service.RevokeSession(t.Context(), "user-2", "session-1"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("expected not found, got %v", err)
+	}
+	if refresh.byHash["active"].RevokedAt != nil {
+		t.Fatal("session was revoked for wrong user")
+	}
+
+	if err := service.RevokeSession(t.Context(), "user-1", "session-1"); err != nil {
+		t.Fatalf("revoke session: %v", err)
+	}
+	if refresh.byHash["active"].RevokedAt == nil {
+		t.Fatal("expected session to be revoked")
+	}
+	if !audit.hasEvent("session_revoked") {
+		t.Fatal("expected session revoked audit event")
+	}
+}
+
 func newTestAuthService(t *testing.T) (*AuthService, *fakeUserRepo, *fakeRefreshRepo, *fakeAuditRepo) {
 	t.Helper()
 
@@ -538,12 +618,32 @@ func (r *fakeRefreshRepo) GetByHash(_ context.Context, tokenHash string) (*model
 	return token, nil
 }
 
+func (r *fakeRefreshRepo) ListByUser(_ context.Context, userID string) ([]models.RefreshToken, error) {
+	tokens := []models.RefreshToken{}
+	for _, token := range r.byHash {
+		if token.UserID == userID {
+			tokens = append(tokens, *token)
+		}
+	}
+	return tokens, nil
+}
+
 func (r *fakeRefreshRepo) Revoke(_ context.Context, id string, revokedAt time.Time) error {
 	if r.revokeErr != nil {
 		return r.revokeErr
 	}
 	for _, token := range r.byHash {
 		if token.ID == id {
+			token.RevokedAt = &revokedAt
+			return nil
+		}
+	}
+	return repository.ErrNotFound
+}
+
+func (r *fakeRefreshRepo) RevokeByUserSession(_ context.Context, userID, id string, revokedAt time.Time) error {
+	for _, token := range r.byHash {
+		if token.UserID == userID && token.ID == id && token.RevokedAt == nil {
 			token.RevokedAt = &revokedAt
 			return nil
 		}

@@ -198,6 +198,57 @@ func TestChangePasswordRevokesAllSessions(t *testing.T) {
 	}
 }
 
+func TestAuthSessionManagementListsAndRevokesSession(t *testing.T) {
+	router := newTestAuthRouter(t)
+	setupRec := httptest.NewRecorder()
+	setupReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/setup", strings.NewReader(`{
+		"email":"user@example.com",
+		"password":"correct horse battery staple",
+		"primary_currency":"RUB"
+	}`))
+	router.ServeHTTP(setupRec, setupReq)
+	if setupRec.Code != http.StatusCreated {
+		t.Fatalf("setup status = %d, want %d: %s", setupRec.Code, http.StatusCreated, setupRec.Body.String())
+	}
+	session := decodeAuthResponse(t, setupRec)
+
+	listRec := httptest.NewRecorder()
+	listReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/sessions", http.NoBody)
+	listReq.Header.Set("Authorization", "Bearer "+session.AccessToken)
+	router.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list sessions status = %d, want %d: %s", listRec.Code, http.StatusOK, listRec.Body.String())
+	}
+
+	var sessions dto.AuthSessionsResponse
+	if err := json.Unmarshal(listRec.Body.Bytes(), &sessions); err != nil {
+		t.Fatalf("decode sessions response: %v", err)
+	}
+	if len(sessions.Sessions) != 1 {
+		t.Fatalf("sessions count = %d, want 1", len(sessions.Sessions))
+	}
+	if !sessions.Sessions[0].Active || !sessions.Sessions[0].Current {
+		t.Fatalf("session = %+v, want active current", sessions.Sessions[0])
+	}
+
+	revokeRec := httptest.NewRecorder()
+	revokeReq := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/api/v1/auth/sessions/"+sessions.Sessions[0].ID, http.NoBody)
+	revokeReq.Header.Set("Authorization", "Bearer "+session.AccessToken)
+	revokeReq.Header.Set("Idempotency-Key", "revoke-session")
+	router.ServeHTTP(revokeRec, revokeReq)
+	if revokeRec.Code != http.StatusNoContent {
+		t.Fatalf("revoke session status = %d, want %d: %s", revokeRec.Code, http.StatusNoContent, revokeRec.Body.String())
+	}
+
+	profileRec := httptest.NewRecorder()
+	profileReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/settings/profile", http.NoBody)
+	profileReq.Header.Set("Authorization", "Bearer "+session.AccessToken)
+	router.ServeHTTP(profileRec, profileReq)
+	if profileRec.Code != http.StatusUnauthorized {
+		t.Fatalf("profile status = %d, want %d after session revoke", profileRec.Code, http.StatusUnauthorized)
+	}
+}
+
 func newTestAuthRouter(t *testing.T) http.Handler {
 	t.Helper()
 
