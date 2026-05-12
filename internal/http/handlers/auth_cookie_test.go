@@ -105,6 +105,54 @@ func TestAuthLogoutClearsRefreshCookie(t *testing.T) {
 	}
 }
 
+func TestAuthRefreshReuseRevokesSessionFamily(t *testing.T) {
+	router := newTestAuthRouter(t)
+	setupRec := httptest.NewRecorder()
+	setupReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/setup", strings.NewReader(`{
+		"email":"user@example.com",
+		"password":"correct horse battery staple",
+		"primary_currency":"RUB"
+	}`))
+	router.ServeHTTP(setupRec, setupReq)
+	if setupRec.Code != http.StatusCreated {
+		t.Fatalf("setup status = %d, want %d: %s", setupRec.Code, http.StatusCreated, setupRec.Body.String())
+	}
+	setupSession := decodeAuthResponse(t, setupRec)
+
+	refreshRec := httptest.NewRecorder()
+	refreshReq := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/auth/refresh",
+		strings.NewReader(`{"refresh_token":"`+setupSession.RefreshToken+`"}`),
+	)
+	router.ServeHTTP(refreshRec, refreshReq)
+	if refreshRec.Code != http.StatusOK {
+		t.Fatalf("refresh status = %d, want %d: %s", refreshRec.Code, http.StatusOK, refreshRec.Body.String())
+	}
+	rotatedSession := decodeAuthResponse(t, refreshRec)
+
+	reuseRec := httptest.NewRecorder()
+	reuseReq := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/auth/refresh",
+		strings.NewReader(`{"refresh_token":"`+setupSession.RefreshToken+`"}`),
+	)
+	router.ServeHTTP(reuseRec, reuseReq)
+	if reuseRec.Code != http.StatusBadRequest {
+		t.Fatalf("reuse status = %d, want %d: %s", reuseRec.Code, http.StatusBadRequest, reuseRec.Body.String())
+	}
+
+	profileRec := httptest.NewRecorder()
+	profileReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/settings/profile", http.NoBody)
+	profileReq.Header.Set("Authorization", "Bearer "+rotatedSession.AccessToken)
+	router.ServeHTTP(profileRec, profileReq)
+	if profileRec.Code != http.StatusUnauthorized {
+		t.Fatalf("profile status = %d, want %d after refresh reuse", profileRec.Code, http.StatusUnauthorized)
+	}
+}
+
 func newTestAuthRouter(t *testing.T) http.Handler {
 	t.Helper()
 
@@ -113,6 +161,16 @@ func newTestAuthRouter(t *testing.T) http.Handler {
 		t.Fatalf("new token service: %v", err)
 	}
 	return NewRouter(newTestProfileStore(), &RouterConfig{TokenService: tokens})
+}
+
+func decodeAuthResponse(t *testing.T, rec *httptest.ResponseRecorder) dto.AuthResponse {
+	t.Helper()
+
+	var response dto.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode auth response: %v", err)
+	}
+	return response
 }
 
 func requireRefreshCookie(t *testing.T, cookies []*http.Cookie) *http.Cookie {

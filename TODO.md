@@ -623,7 +623,7 @@ internal/domain
   * [x] `SameSite`
   * [x] `Path`
 * [x] Middleware JWT -> `userID` в context
-* [ ] Unit + handler + security tests (включая reuse)
+* [x] Unit + handler + security tests (включая reuse)
 * [ ] Observability:
   * [ ] метрики для auth
   * [ ] алерты для auth incidents
