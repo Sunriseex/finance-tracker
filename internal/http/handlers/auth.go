@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sunriseex/capitalflow/internal/http/dto"
+	appmiddleware "github.com/sunriseex/capitalflow/internal/http/middleware"
 	"github.com/sunriseex/capitalflow/internal/models"
 	"github.com/sunriseex/capitalflow/internal/services"
 )
@@ -84,6 +85,31 @@ func (h *Handler) authLogout(w http.ResponseWriter, r *http.Request) {
 	req.RefreshToken = refreshTokenFromRequest(r, req.RefreshToken)
 
 	if err := h.authService().Logout(r.Context(), req.RefreshToken); err != nil {
+		writeValidationOrServiceError(w, err)
+		return
+	}
+	clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
+	claims, ok := appmiddleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Unauthorized", nil)
+		return
+	}
+
+	var req dto.ChangePasswordRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body", nil)
+		return
+	}
+
+	if err := h.authService().ChangePassword(r.Context(), services.ChangePasswordRequest{
+		UserID:          claims,
+		CurrentPassword: req.CurrentPassword,
+		NewPassword:     req.NewPassword,
+	}); err != nil {
 		writeValidationOrServiceError(w, err)
 		return
 	}

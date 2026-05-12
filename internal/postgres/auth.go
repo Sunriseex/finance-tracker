@@ -106,6 +106,18 @@ func (r *UserRepository) ClearLoginFailures(ctx context.Context, id string, upda
 	return nil
 }
 
+func (r *UserRepository) UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users
+		SET password_hash = $2, failed_login_attempts = 0, locked_until = NULL, updated_at = $3
+		WHERE id = $1
+	`, id, passwordHash, updatedAt)
+	if err != nil {
+		return fmt.Errorf("update user password: %w", err)
+	}
+	return nil
+}
+
 func (r *UserRepository) get(ctx context.Context, query string, args ...any) (*models.User, error) {
 	user, err := scanUser(r.pool.QueryRow(ctx, query, args...))
 	if err != nil {

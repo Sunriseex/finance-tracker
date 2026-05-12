@@ -335,6 +335,76 @@ func TestAuthServiceLogoutRevokesRefreshToken(t *testing.T) {
 	}
 }
 
+func TestAuthServiceChangePasswordRevokesUserSessions(t *testing.T) {
+	service, users, refresh, audit := newTestAuthService(t)
+	users.byID["user-1"] = &models.User{
+		ID:           "user-1",
+		Email:        "user@example.com",
+		PasswordHash: "hash:correct horse battery staple",
+	}
+	refresh.byHash["token-1"] = &models.RefreshToken{
+		ID:        "refresh-1",
+		UserID:    "user-1",
+		TokenHash: "token-1",
+		ExpiresAt: service.now().Add(time.Hour),
+		CreatedAt: service.now(),
+	}
+	refresh.byHash["token-2"] = &models.RefreshToken{
+		ID:        "refresh-2",
+		UserID:    "user-1",
+		TokenHash: "token-2",
+		ExpiresAt: service.now().Add(time.Hour),
+		CreatedAt: service.now(),
+	}
+
+	err := service.ChangePassword(t.Context(), ChangePasswordRequest{
+		UserID:          "user-1",
+		CurrentPassword: "correct horse battery staple",
+		NewPassword:     "fresh correct horse battery staple 2026!",
+	})
+	if err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+	if users.byID["user-1"].PasswordHash != "hash:fresh correct horse battery staple 2026!" {
+		t.Fatalf("password hash = %q", users.byID["user-1"].PasswordHash)
+	}
+	for hash, token := range refresh.byHash {
+		if token.RevokedAt == nil {
+			t.Fatalf("token %s was not revoked", hash)
+		}
+	}
+	if !audit.hasEvent("change_password_success") {
+		t.Fatal("expected password change audit event")
+	}
+}
+
+func TestAuthServiceChangePasswordRejectsWrongCurrentPassword(t *testing.T) {
+	service, users, refresh, audit := newTestAuthService(t)
+	users.byID["user-1"] = &models.User{
+		ID:           "user-1",
+		Email:        "user@example.com",
+		PasswordHash: "hash:correct horse battery staple",
+	}
+
+	err := service.ChangePassword(t.Context(), ChangePasswordRequest{
+		UserID:          "user-1",
+		CurrentPassword: "wrong password",
+		NewPassword:     "fresh correct horse battery staple 2026!",
+	})
+	if !IsValidationError(err) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if users.byID["user-1"].PasswordHash != "hash:correct horse battery staple" {
+		t.Fatal("password hash changed")
+	}
+	if len(refresh.byHash) != 0 {
+		t.Fatal("unexpected refresh revoke")
+	}
+	if !audit.hasEventReason("change_password_failed", "invalid_current_password") {
+		t.Fatal("expected invalid current password audit event")
+	}
+}
+
 func newTestAuthService(t *testing.T) (*AuthService, *fakeUserRepo, *fakeRefreshRepo, *fakeAuditRepo) {
 	t.Helper()
 
@@ -410,6 +480,18 @@ func (r *fakeUserRepo) ClearLoginFailures(_ context.Context, id string, updatedA
 	if !ok {
 		return repository.ErrNotFound
 	}
+	user.FailedLoginAttempts = 0
+	user.LockedUntil = nil
+	user.UpdatedAt = updatedAt
+	return nil
+}
+
+func (r *fakeUserRepo) UpdatePassword(_ context.Context, id, passwordHash string, updatedAt time.Time) error {
+	user, ok := r.byID[id]
+	if !ok {
+		return repository.ErrNotFound
+	}
+	user.PasswordHash = passwordHash
 	user.FailedLoginAttempts = 0
 	user.LockedUntil = nil
 	user.UpdatedAt = updatedAt

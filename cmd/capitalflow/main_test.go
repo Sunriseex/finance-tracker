@@ -166,6 +166,18 @@ func (r *fakeCLIUserRepo) ClearLoginFailures(_ context.Context, id string, updat
 	return nil
 }
 
+func (r *fakeCLIUserRepo) UpdatePassword(_ context.Context, id, passwordHash string, updatedAt time.Time) error {
+	user, ok := r.byID[id]
+	if !ok {
+		return repository.ErrNotFound
+	}
+	user.PasswordHash = passwordHash
+	user.FailedLoginAttempts = 0
+	user.LockedUntil = nil
+	user.UpdatedAt = updatedAt
+	return nil
+}
+
 func (r *fakeCLIUserRepo) UpdatePrimaryCurrency(_ context.Context, id, primaryCurrency string, updatedAt time.Time) error {
 	user, ok := r.byID[id]
 	if !ok {

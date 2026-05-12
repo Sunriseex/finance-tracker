@@ -239,6 +239,18 @@ func (r *testProfileUserRepo) ClearLoginFailures(_ context.Context, id string, u
 	return nil
 }
 
+func (r *testProfileUserRepo) UpdatePassword(_ context.Context, id, passwordHash string, updatedAt time.Time) error {
+	user, ok := r.byID[id]
+	if !ok {
+		return repository.ErrNotFound
+	}
+	user.PasswordHash = passwordHash
+	user.FailedLoginAttempts = 0
+	user.LockedUntil = nil
+	user.UpdatedAt = updatedAt
+	return nil
+}
+
 func (r *testProfileUserRepo) UpdatePrimaryCurrency(_ context.Context, id, primaryCurrency string, updatedAt time.Time) error {
 	user, ok := r.byID[id]
 	if !ok {

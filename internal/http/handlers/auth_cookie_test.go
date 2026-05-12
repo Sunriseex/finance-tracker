@@ -153,6 +153,51 @@ func TestAuthRefreshReuseRevokesSessionFamily(t *testing.T) {
 	}
 }
 
+func TestChangePasswordRevokesAllSessions(t *testing.T) {
+	router := newTestAuthRouter(t)
+	setupRec := httptest.NewRecorder()
+	setupReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/setup", strings.NewReader(`{
+		"email":"user@example.com",
+		"password":"correct horse battery staple",
+		"primary_currency":"RUB"
+	}`))
+	router.ServeHTTP(setupRec, setupReq)
+	if setupRec.Code != http.StatusCreated {
+		t.Fatalf("setup status = %d, want %d: %s", setupRec.Code, http.StatusCreated, setupRec.Body.String())
+	}
+	session := decodeAuthResponse(t, setupRec)
+
+	changeRec := httptest.NewRecorder()
+	changeReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/password", strings.NewReader(`{
+		"current_password":"correct horse battery staple",
+		"new_password":"fresh correct horse battery staple 2026!"
+	}`))
+	changeReq.Header.Set("Authorization", "Bearer "+session.AccessToken)
+	changeReq.Header.Set("Idempotency-Key", "change-password")
+	router.ServeHTTP(changeRec, changeReq)
+	if changeRec.Code != http.StatusNoContent {
+		t.Fatalf("change password status = %d, want %d: %s", changeRec.Code, http.StatusNoContent, changeRec.Body.String())
+	}
+
+	profileRec := httptest.NewRecorder()
+	profileReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/settings/profile", http.NoBody)
+	profileReq.Header.Set("Authorization", "Bearer "+session.AccessToken)
+	router.ServeHTTP(profileRec, profileReq)
+	if profileRec.Code != http.StatusUnauthorized {
+		t.Fatalf("profile status = %d, want %d after password change", profileRec.Code, http.StatusUnauthorized)
+	}
+
+	loginRec := httptest.NewRecorder()
+	loginReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/login", strings.NewReader(`{
+		"email":"user@example.com",
+		"password":"fresh correct horse battery staple 2026!"
+	}`))
+	router.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want %d: %s", loginRec.Code, http.StatusOK, loginRec.Body.String())
+	}
+}
+
 func newTestAuthRouter(t *testing.T) http.Handler {
 	t.Helper()
 

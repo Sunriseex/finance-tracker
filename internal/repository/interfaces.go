@@ -68,6 +68,7 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id string) (*models.User, error)
 	RecordLoginFailure(ctx context.Context, id string, attempts int, lockedUntil *time.Time, updatedAt time.Time) error
 	ClearLoginFailures(ctx context.Context, id string, updatedAt time.Time) error
+	UpdatePassword(ctx context.Context, id, passwordHash string, updatedAt time.Time) error
 	UpdatePrimaryCurrency(ctx context.Context, id, primaryCurrency string, updatedAt time.Time) error
 }
 

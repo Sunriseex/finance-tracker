@@ -92,6 +92,7 @@ func NewRouter(store Store, cfg *RouterConfig) http.Handler {
 		}
 
 		r.With(appmiddleware.MutationOnly(mutationRateLimit), appmiddleware.Idempotency(h.idempotency())).Group(func(r chi.Router) {
+			r.Post("/auth/password", h.changePassword)
 			r.Patch("/settings/profile", h.updateProfile)
 			r.Post("/accounts", h.createAccount)
 			r.Patch("/accounts/{id}", h.updateAccount)

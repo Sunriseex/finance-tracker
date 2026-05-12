@@ -67,6 +67,12 @@ type AuthRequest struct {
 	PrimaryCurrency string
 }
 
+type ChangePasswordRequest struct {
+	UserID          string
+	CurrentPassword string
+	NewPassword     string
+}
+
 type AuthSession struct {
 	User             *models.User
 	AccessToken      string
@@ -274,6 +280,65 @@ func (s *AuthService) Logout(ctx context.Context, rawRefreshToken string) error 
 		return fmt.Errorf("revoke refresh token: %w", err)
 	}
 	s.auditEvent(ctx, "logout", "", &token.UserID, true, "")
+	return nil
+}
+
+func (s *AuthService) ChangePassword(ctx context.Context, req ChangePasswordRequest) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	if s.users == nil || s.refresh == nil {
+		return fmt.Errorf("auth service is not configured")
+	}
+
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" {
+		return validationError("user is required")
+	}
+	if strings.TrimSpace(req.CurrentPassword) == "" {
+		s.auditEvent(ctx, "change_password_failed", "", &userID, false, "invalid_current_password")
+		return validationError("current password is required")
+	}
+	if strings.TrimSpace(req.NewPassword) == "" {
+		s.auditEvent(ctx, "change_password_failed", "", &userID, false, "validation_error")
+		return validationError("new password is required")
+	}
+
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get user: %w", err)
+	}
+	ok, err := s.verifyFunc(req.CurrentPassword, user.PasswordHash)
+	if err != nil {
+		return fmt.Errorf("verify password: %w", err)
+	}
+	if !ok {
+		s.auditEvent(ctx, "change_password_failed", user.Email, &user.ID, false, "invalid_current_password")
+		return validationError("invalid current password")
+	}
+	if req.CurrentPassword == req.NewPassword {
+		s.auditEvent(ctx, "change_password_failed", user.Email, &user.ID, false, "password_reuse")
+		return validationError("new password must be different")
+	}
+	if err := validatePasswordPolicy(req.NewPassword, user.Email); err != nil {
+		s.auditEvent(ctx, "change_password_failed", user.Email, &user.ID, false, "validation_error")
+		return err
+	}
+
+	hash, err := s.passwordFunc(req.NewPassword, security.DefaultPasswordParams())
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	now := s.now()
+	if err := s.users.UpdatePassword(ctx, user.ID, hash, now); err != nil {
+		s.auditEvent(ctx, "change_password_failed", user.Email, &user.ID, false, "save_failed")
+		return fmt.Errorf("update password: %w", err)
+	}
+	if err := s.refresh.RevokeByUser(ctx, user.ID, now); err != nil {
+		s.auditEvent(ctx, "change_password_failed", user.Email, &user.ID, false, "revoke_sessions_failed")
+		return fmt.Errorf("revoke user refresh tokens: %w", err)
+	}
+	s.auditEvent(ctx, "change_password_success", user.Email, &user.ID, true, "")
 	return nil
 }
 
