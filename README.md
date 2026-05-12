@@ -38,6 +38,9 @@ The project is intended as a practical backend learning project with production-
 │   └── server/              # HTTP API entrypoint
 ├── configs/
 │   └── example.env          # Example local configuration
+├── docs/
+│   ├── openapi.yaml         # OpenAPI contract
+│   └── wiki/                # Canonical GitHub Wiki source
 ├── internal/
 │   ├── config/              # Application configuration
 │   ├── http/
@@ -52,6 +55,18 @@ The project is intended as a practical backend learning project with production-
 ├── migrations/              # PostgreSQL migrations
 └── .github/workflows/       # CI configuration
 ```
+
+## Documentation
+
+The documentation portal source lives in [docs/wiki/Home.md](docs/wiki/Home.md). Mirror these pages to the GitHub Wiki when publishing user-facing docs.
+
+Key docs:
+
+* [API contract](docs/openapi.yaml)
+* [Auth Security Model](docs/wiki/Auth-Security-Model.md)
+* [Operations Runbook](docs/wiki/Operations-Runbook.md)
+* [Auth Incident Response](docs/wiki/Auth-Incident-Response.md)
+* [Auth Security ADR](docs/wiki/ADR-0001-Auth-Security-Hardening.md)
 
 ## Requirements
 

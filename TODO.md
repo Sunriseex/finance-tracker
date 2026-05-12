@@ -627,10 +627,10 @@ internal/domain
 * [ ] Observability:
   * [x] метрики для auth
   * [x] алерты для auth incidents
-* [ ] Документация:
-  * [ ] Security Model
-  * [ ] Runbook
-  * [ ] ADR
+* [x] Документация:
+  * [x] Security Model
+  * [x] Runbook
+  * [x] ADR
 
 ## Acceptance Criteria
 
@@ -640,7 +640,7 @@ internal/domain
 * [x] Пользователь может завершить все активные сессии
 * [x] Все auth-события попадают в audit log
 * [x] Auth security покрыт тестами и метриками
-* [ ] Есть документация для эксплуатации и incident response
+* [x] Есть документация для эксплуатации и incident response
 
 ---
 
