@@ -57,6 +57,25 @@ func TestAuthServiceSetupRejectsInvalidPrimaryCurrency(t *testing.T) {
 	}
 }
 
+func TestAuthServiceSetupRejectsWeakPassword(t *testing.T) {
+	service, _, _, audit := newTestAuthService(t)
+
+	_, err := service.Setup(t.Context(), AuthRequest{
+		Email:           "user@example.com",
+		Password:        "password12345",
+		PrimaryCurrency: "RUB",
+	})
+	if !IsValidationError(err) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if err.Error() != "password is too weak" {
+		t.Fatalf("error = %q, want weak password error", err.Error())
+	}
+	if !audit.hasEvent("setup_failed") {
+		t.Fatal("expected setup failed audit event")
+	}
+}
+
 func TestAuthServiceSetupRejectsSecondUser(t *testing.T) {
 	service, users, _, _ := newTestAuthService(t)
 	users.byID["user-1"] = &models.User{ID: "user-1", Email: "user@example.com"}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	zxcvbn "github.com/nbutton23/zxcvbn-go"
 
 	"github.com/sunriseex/capitalflow/internal/auth"
 	"github.com/sunriseex/capitalflow/internal/models"
@@ -247,8 +248,8 @@ func (s *AuthService) buildUser(req AuthRequest) (*models.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(req.Password) < 12 {
-		return nil, validationError("password must be at least 12 characters")
+	if err := validatePasswordPolicy(req.Password, email); err != nil {
+		return nil, err
 	}
 	primaryCurrency := normalizePrimaryCurrency(req.PrimaryCurrency)
 	if err := validateCurrency(primaryCurrency); err != nil {
@@ -327,6 +328,27 @@ func validateCurrency(currency string) error {
 		}
 	}
 	return nil
+}
+
+func validatePasswordPolicy(password, email string) error {
+	if len(password) < 12 {
+		return validationError("password must be at least 12 characters")
+	}
+
+	strength := zxcvbn.PasswordStrength(password, passwordUserInputs(email))
+	if strength.Score < 3 {
+		return validationError("password is too weak")
+	}
+	return nil
+}
+
+func passwordUserInputs(email string) []string {
+	inputs := []string{email}
+	local, domain, found := strings.Cut(email, "@")
+	if found {
+		inputs = append(inputs, local, domain)
+	}
+	return inputs
 }
 
 func (s *AuthService) auditEvent(ctx context.Context, eventType, email string, userID *string, success bool, reason string) {
