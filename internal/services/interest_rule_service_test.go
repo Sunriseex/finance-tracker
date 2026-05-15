@@ -267,6 +267,39 @@ func TestInterestRuleServiceAccrueSkipsDuplicate(t *testing.T) {
 	}
 }
 
+func TestInterestRuleServiceAccrueDailyRuleUsesOnlyAccrualDate(t *testing.T) {
+	rule := models.InterestRule{
+		ID:                      "rule-1",
+		AccountID:               "account-1",
+		AnnualRateBps:           1_200,
+		AccrualFrequency:        models.AccrualFrequencyDaily,
+		CapitalizationFrequency: models.CapitalizationFrequencyDaily,
+		DayCountConvention:      models.DayCountConventionActual365,
+		IsActive:                true,
+		StartDate:               time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	got, err := NewInterestRuleService(nil).Accrue(t.Context(), &AccrueRuleInterestRequest{
+		Rule: rule,
+		Transactions: []models.Transaction{
+			{
+				ID:          "initial",
+				AccountID:   rule.AccountID,
+				Type:        models.TransactionTypeInitialBalance,
+				AmountMinor: 100_000_00,
+				OccurredAt:  rule.StartDate,
+			},
+		},
+		AccrualDate: time.Date(2026, 5, 4, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("accrue interest: %v", err)
+	}
+	if got.Transaction.AmountMinor != 3_288 {
+		t.Fatalf("amount = %d, want one daily accrual 3288", got.Transaction.AmountMinor)
+	}
+}
+
 func TestInterestRuleServiceAccrueValidatesRuleDate(t *testing.T) {
 	rule := models.InterestRule{
 		ID:                 "rule-1",
@@ -888,6 +921,76 @@ func TestInterestRuleServiceRecalculateMonthlyAccrual(t *testing.T) {
 	}
 }
 
+func TestInterestRuleServiceRecalculateFlushesPendingOnPayableDateWithZeroBalance(t *testing.T) {
+	rule := validAccrualTestRule()
+	rule.AccrualFrequency = models.AccrualFrequencyMonthly
+	rule.CapitalizationFrequency = models.CapitalizationFrequencyNone
+
+	got, err := NewInterestRuleService(nil).Recalculate(t.Context(), &RecalculateRuleInterestRequest{
+		Rule: rule,
+		Transactions: []models.Transaction{
+			{
+				ID:          "initial",
+				AccountID:   rule.AccountID,
+				Type:        models.TransactionTypeInitialBalance,
+				AmountMinor: 100_000_00,
+				OccurredAt:  time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			},
+			{
+				ID:          "withdrawal",
+				AccountID:   rule.AccountID,
+				Type:        models.TransactionTypeExpense,
+				AmountMinor: 100_000_00,
+				OccurredAt:  time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		FromDate: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		ToDate:   time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("recalculate interest: %v", err)
+	}
+	if got.CreatedAccruals != 1 {
+		t.Fatalf("created accruals = %d, want 1 monthly posting", got.CreatedAccruals)
+	}
+	if got.TotalAmountMinor != 98_640 {
+		t.Fatalf("total amount = %d, want 30 earned days before withdrawal", got.TotalAmountMinor)
+	}
+}
+
+func TestInterestRuleServiceRecalculateCapitalizesFullMonthlyPendingPeriod(t *testing.T) {
+	rule := validAccrualTestRule()
+	rule.AccrualFrequency = models.AccrualFrequencyDaily
+	rule.CapitalizationFrequency = models.CapitalizationFrequencyMonthly
+
+	got, err := NewInterestRuleService(nil).Recalculate(t.Context(), &RecalculateRuleInterestRequest{
+		Rule: rule,
+		Transactions: []models.Transaction{
+			{
+				ID:          "initial",
+				AccountID:   rule.AccountID,
+				Type:        models.TransactionTypeInitialBalance,
+				AmountMinor: 100_000_00,
+				OccurredAt:  time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		FromDate: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		ToDate:   time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("recalculate interest: %v", err)
+	}
+	if got.CreatedAccruals != 32 {
+		t.Fatalf("created accruals = %d, want 32 daily postings", got.CreatedAccruals)
+	}
+	if got.Transactions[30].AmountMinor != 3_288 {
+		t.Fatalf("may 31 amount = %d, want uncapitalized daily amount 3288", got.Transactions[30].AmountMinor)
+	}
+	if got.Transactions[31].AmountMinor <= got.Transactions[30].AmountMinor {
+		t.Fatalf("jun 1 amount = %d, want higher after monthly capitalization", got.Transactions[31].AmountMinor)
+	}
+}
+
 func TestInterestRuleServiceRecalculateEndOfTermAccrual(t *testing.T) {
 	rule := validAccrualTestRule()
 	rule.AccrualFrequency = models.AccrualFrequencyEndOfTerm
@@ -1007,6 +1110,57 @@ func TestInterestRuleServiceForecastSupportsCommonRanges(t *testing.T) {
 				t.Fatalf("projected minor = %d, projected balance = %d", got.ProjectedMinor, got.ProjectedBalance)
 			}
 		})
+	}
+}
+
+func TestInterestRuleServiceForecastIgnoresUncapitalizedAndFutureTransactions(t *testing.T) {
+	rule := validAccrualTestRule()
+	rule.CapitalizationFrequency = models.CapitalizationFrequencyNone
+
+	got, err := NewInterestRuleService(nil).Forecast(t.Context(), &ForecastRuleInterestRequest{
+		Rule: rule,
+		Transactions: []models.Transaction{
+			{
+				ID:          "initial",
+				AccountID:   rule.AccountID,
+				Type:        models.TransactionTypeInitialBalance,
+				AmountMinor: 100_000_00,
+				OccurredAt:  time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			},
+			{
+				ID:          "prior-interest",
+				AccountID:   rule.AccountID,
+				Type:        models.TransactionTypeInterestIncome,
+				AmountMinor: 3_288,
+				OccurredAt:  time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			},
+			{
+				ID:          "future-income",
+				AccountID:   rule.AccountID,
+				Type:        models.TransactionTypeIncome,
+				AmountMinor: 50_000_00,
+				OccurredAt:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		ExistingAccruals: []models.InterestAccrual{
+			{
+				AccountID:     rule.AccountID,
+				RuleID:        rule.ID,
+				TransactionID: "prior-interest",
+				AccrualDate:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		FromDate: time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
+		Days:     1,
+	})
+	if err != nil {
+		t.Fatalf("forecast interest: %v", err)
+	}
+	if got.ProjectedMinor != 3_288 {
+		t.Fatalf("projected minor = %d, want one day from initial principal", got.ProjectedMinor)
+	}
+	if got.ProjectedBalance != 100_032_88 {
+		t.Fatalf("projected balance = %d, want horizon balance without prior accrual or future income", got.ProjectedBalance)
 	}
 }
 

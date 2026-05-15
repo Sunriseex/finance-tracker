@@ -228,10 +228,7 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transactions = transactionsUpToDate(transactions, accrualDate)
-	if rule.CapitalizationFrequency == models.CapitalizationFrequencyNone ||
-		rule.CapitalizationFrequency == "" {
-		transactions = excludeRuleAccrualTransactions(transactions, accruals, rule)
-	}
+	transactions = services.PrincipalTransactionsForRule(transactions, accruals, rule)
 
 	balance, err := services.NewBalanceService().Calculate(r.Context(), services.CalculateBalanceRequest{
 		AccountID:    accountID,
@@ -573,32 +570,6 @@ func transactionsUpToDate(transactions []models.Transaction, accrualDate time.Ti
 		if !dateOnly(transactions[i].OccurredAt).After(date) {
 			filtered = append(filtered, transactions[i])
 		}
-	}
-
-	return filtered
-}
-
-func excludeRuleAccrualTransactions(
-	transactions []models.Transaction,
-	accruals []models.InterestAccrual,
-	rule *models.InterestRule,
-) []models.Transaction {
-	excludedTransactionIDs := make(map[string]struct{})
-
-	for i := range accruals {
-		accrual := &accruals[i]
-		if accrual.AccountID == rule.AccountID && accrual.RuleID == rule.ID {
-			excludedTransactionIDs[accrual.TransactionID] = struct{}{}
-		}
-	}
-
-	filtered := make([]models.Transaction, 0, len(transactions))
-	for i := range transactions {
-		if _, ok := excludedTransactionIDs[transactions[i].ID]; ok {
-			continue
-		}
-
-		filtered = append(filtered, transactions[i])
 	}
 
 	return filtered

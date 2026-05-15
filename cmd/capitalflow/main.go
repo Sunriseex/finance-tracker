@@ -520,11 +520,16 @@ func runForecast(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	accruals, err := store.InterestAccruals().ListByAccount(ctx, account)
+	if err != nil {
+		return err
+	}
 	result, err := services.NewInterestRuleService(nil).Forecast(ctx, &services.ForecastRuleInterestRequest{
-		Rule:         *rule,
-		Transactions: transactions,
-		FromDate:     fromDate,
-		Days:         *days,
+		Rule:             *rule,
+		Transactions:     transactions,
+		ExistingAccruals: accruals,
+		FromDate:         fromDate,
+		Days:             *days,
 	})
 	if err != nil {
 		return err

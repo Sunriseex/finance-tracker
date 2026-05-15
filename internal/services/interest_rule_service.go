@@ -94,11 +94,12 @@ type RecalculateRuleInterestResponse struct {
 }
 
 type ForecastRuleInterestRequest struct {
-	Rule         models.InterestRule
-	Transactions []models.Transaction
-	FromDate     time.Time
-	Days         int
-	Today        time.Time
+	Rule             models.InterestRule
+	Transactions     []models.Transaction
+	ExistingAccruals []models.InterestAccrual
+	FromDate         time.Time
+	Days             int
+	Today            time.Time
 }
 
 type ForecastRuleInterestResponse struct {
@@ -242,7 +243,8 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 	}
 
 	periodStart := nextAccrualPeriodStart(&req.Rule, req.ExistingAccruals, accrualDate)
-	amountMinor, balanceMinor, rateBps, err := calculateAccrualAmount(ctx, &req.Rule, req.Transactions, req.BalanceMinor, periodStart, accrualDate)
+	calculationTransactions := PrincipalTransactionsForRule(req.Transactions, req.ExistingAccruals, &req.Rule)
+	amountMinor, balanceMinor, rateBps, err := calculateAccrualAmount(ctx, &req.Rule, calculationTransactions, req.BalanceMinor, periodStart, accrualDate)
 	if err != nil {
 		return nil, err
 	}
@@ -324,11 +326,7 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	}
 
 	workingTransactions := excludeAccrualTransactions(req.Transactions, req.ExistingAccruals, &req.Rule, fromDate, toDate)
-
-	if req.Rule.CapitalizationFrequency == models.CapitalizationFrequencyNone ||
-		req.Rule.CapitalizationFrequency == "" {
-		workingTransactions = excludeAllRuleAccrualTransactions(workingTransactions, req.ExistingAccruals, &req.Rule)
-	}
+	workingTransactions = PrincipalTransactionsForRule(workingTransactions, req.ExistingAccruals, &req.Rule)
 	response := &RecalculateRuleInterestResponse{
 		AccountID: req.Rule.AccountID,
 		RuleID:    req.Rule.ID,
@@ -339,6 +337,7 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	var pendingAmount int64
 	var pendingBalance int64
 	var pendingRate int64
+	var pendingCapitalization []models.Transaction
 
 	for day := fromDate; !day.After(toDate); day = day.AddDate(0, 0, 1) {
 		select {
@@ -361,20 +360,19 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 		}
 		if balance.BalanceMinor <= 0 {
 			response.SkippedDays++
-			continue
+		} else {
+			rateBps := effectiveRateBps(&req.Rule, day)
+			amountMinor := calculateDailyInterestMinor(balance.BalanceMinor, rateBps, req.Rule.DayCountConvention, day)
+			if amountMinor <= 0 {
+				response.SkippedDays++
+			} else {
+				pendingAmount += amountMinor
+				pendingBalance = balance.BalanceMinor
+				pendingRate = rateBps
+			}
 		}
 
-		rateBps := effectiveRateBps(&req.Rule, day)
-		amountMinor := calculateDailyInterestMinor(balance.BalanceMinor, rateBps, req.Rule.DayCountConvention, day)
-		if amountMinor <= 0 {
-			response.SkippedDays++
-			continue
-		}
-		pendingAmount += amountMinor
-		pendingBalance = balance.BalanceMinor
-		pendingRate = rateBps
-
-		if !shouldPostAccrual(&req.Rule, day) {
+		if !shouldPostAccrual(&req.Rule, day) || pendingAmount <= 0 {
 			continue
 		}
 
@@ -406,8 +404,16 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 		response.CreatedAccruals++
 		response.TotalAmountMinor += pendingAmount
 
-		if shouldCapitalizeOn(&req.Rule, day) {
+		switch {
+		case req.Rule.CapitalizationFrequency == models.CapitalizationFrequencyDaily:
 			workingTransactions = append(workingTransactions, *tx)
+		case shouldCapitalizeOn(&req.Rule, day):
+			pendingCapitalization = append(pendingCapitalization, *tx)
+			workingTransactions = append(workingTransactions, pendingCapitalization...)
+			pendingCapitalization = nil
+		case req.Rule.CapitalizationFrequency != models.CapitalizationFrequencyNone &&
+			req.Rule.CapitalizationFrequency != "":
+			pendingCapitalization = append(pendingCapitalization, *tx)
 		}
 		pendingAmount = 0
 	}
@@ -449,11 +455,12 @@ func (s *InterestRuleService) Forecast(ctx context.Context, req *ForecastRuleInt
 	forecastRule := req.Rule
 	forecastRule.AccrualFrequency = models.AccrualFrequencyDaily
 	result, err := NewInterestRuleService(nil).Recalculate(ctx, &RecalculateRuleInterestRequest{
-		Rule:         forecastRule,
-		Transactions: req.Transactions,
-		FromDate:     fromDate,
-		ToDate:       toDate,
-		Today:        req.Today,
+		Rule:             forecastRule,
+		Transactions:     req.Transactions,
+		ExistingAccruals: req.ExistingAccruals,
+		FromDate:         fromDate,
+		ToDate:           toDate,
+		Today:            req.Today,
 	})
 	if err != nil {
 		return nil, err
@@ -461,7 +468,7 @@ func (s *InterestRuleService) Forecast(ctx context.Context, req *ForecastRuleInt
 
 	balance, err := NewBalanceService().Calculate(ctx, CalculateBalanceRequest{
 		AccountID:    req.Rule.AccountID,
-		Transactions: append(slicesClone(req.Transactions), result.Transactions...),
+		Transactions: append(transactionsUpToDate(PrincipalTransactionsForRule(req.Transactions, req.ExistingAccruals, &req.Rule), toDate), result.Transactions...),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("calculate forecast balance: %w", err)
@@ -479,26 +486,36 @@ func (s *InterestRuleService) Forecast(ctx context.Context, req *ForecastRuleInt
 	}, nil
 }
 
-func excludeAllRuleAccrualTransactions(
+// PrincipalTransactionsForRule excludes this rule's uncapitalized accrual transactions from principal calculations.
+func PrincipalTransactionsForRule(
 	transactions []models.Transaction,
 	accruals []models.InterestAccrual,
 	rule *models.InterestRule,
 ) []models.Transaction {
-	excludedTransactionIDs := make(map[string]struct{})
+	capitalizedTransactionIDs := make(map[string]struct{})
+	uncapitalizedTransactionIDs := make(map[string]struct{})
 
 	for i := range accruals {
 		accrual := &accruals[i]
-		if accrual.AccountID == rule.AccountID && accrual.RuleID == rule.ID {
-			excludedTransactionIDs[accrual.TransactionID] = struct{}{}
+		if accrual.AccountID != rule.AccountID || accrual.RuleID != rule.ID {
+			continue
 		}
+		if shouldCapitalizeOn(rule, accrual.AccrualDate) {
+			capitalizedTransactionIDs[accrual.TransactionID] = struct{}{}
+			continue
+		}
+		uncapitalizedTransactionIDs[accrual.TransactionID] = struct{}{}
 	}
 
 	filtered := make([]models.Transaction, 0, len(transactions))
 	for i := range transactions {
-		if _, ok := excludedTransactionIDs[transactions[i].ID]; ok {
+		if _, ok := capitalizedTransactionIDs[transactions[i].ID]; ok {
+			filtered = append(filtered, transactions[i])
 			continue
 		}
-
+		if _, ok := uncapitalizedTransactionIDs[transactions[i].ID]; ok {
+			continue
+		}
 		filtered = append(filtered, transactions[i])
 	}
 
@@ -616,6 +633,10 @@ func calculateDailyInterestMinor(balanceMinor, rateBps int64, convention models.
 }
 
 func nextAccrualPeriodStart(rule *models.InterestRule, accruals []models.InterestAccrual, accrualDate time.Time) time.Time {
+	if rule.AccrualFrequency == models.AccrualFrequencyDaily {
+		return dateOnly(accrualDate)
+	}
+
 	start := dateOnly(rule.StartDate)
 	for i := range accruals {
 		accrual := &accruals[i]
@@ -669,15 +690,6 @@ func isLastActiveDayOfMonth(rule *models.InterestRule, date time.Time) bool {
 
 func isEndOfTerm(rule *models.InterestRule, date time.Time) bool {
 	return rule.EndDate != nil && dateOnly(*rule.EndDate).Equal(dateOnly(date))
-}
-
-func slicesClone(items []models.Transaction) []models.Transaction {
-	if len(items) == 0 {
-		return nil
-	}
-	cloned := make([]models.Transaction, len(items))
-	copy(cloned, items)
-	return cloned
 }
 
 func daysInYear(convention models.DayCountConvention, date time.Time) int {
