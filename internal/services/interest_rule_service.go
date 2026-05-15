@@ -243,7 +243,7 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 	}
 
 	periodStart := nextAccrualPeriodStart(&req.Rule, req.ExistingAccruals, accrualDate)
-	calculationTransactions := PrincipalTransactionsForRule(req.Transactions, req.ExistingAccruals, &req.Rule)
+	calculationTransactions := PrincipalTransactionsForRuleAt(req.Transactions, req.ExistingAccruals, &req.Rule, accrualDate)
 	amountMinor, balanceMinor, rateBps, err := calculateAccrualAmount(ctx, &req.Rule, calculationTransactions, req.BalanceMinor, periodStart, accrualDate)
 	if err != nil {
 		return nil, err
@@ -325,8 +325,9 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 		return nil, validationError("to date must be on or after from date")
 	}
 
+	calculationFromDate := recalculationStartDate(&req.Rule, fromDate, toDate)
 	workingTransactions := excludeAccrualTransactions(req.Transactions, req.ExistingAccruals, &req.Rule, fromDate, toDate)
-	workingTransactions = PrincipalTransactionsForRule(workingTransactions, req.ExistingAccruals, &req.Rule)
+	workingTransactions = PrincipalTransactionsForRuleAt(workingTransactions, req.ExistingAccruals, &req.Rule, calculationFromDate)
 	response := &RecalculateRuleInterestResponse{
 		AccountID: req.Rule.AccountID,
 		RuleID:    req.Rule.ID,
@@ -339,7 +340,7 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	var pendingRate int64
 	var pendingCapitalization []models.Transaction
 
-	for day := fromDate; !day.After(toDate); day = day.AddDate(0, 0, 1) {
+	for day := calculationFromDate; !day.After(toDate); day = day.AddDate(0, 0, 1) {
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("recalculate interest: %w", ctx.Err())
@@ -468,7 +469,7 @@ func (s *InterestRuleService) Forecast(ctx context.Context, req *ForecastRuleInt
 
 	balance, err := NewBalanceService().Calculate(ctx, CalculateBalanceRequest{
 		AccountID:    req.Rule.AccountID,
-		Transactions: append(transactionsUpToDate(PrincipalTransactionsForRule(req.Transactions, req.ExistingAccruals, &req.Rule), toDate), result.Transactions...),
+		Transactions: append(transactionsUpToDate(PrincipalTransactionsForRuleAt(req.Transactions, req.ExistingAccruals, &req.Rule, toDate), toDate), result.Transactions...),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("calculate forecast balance: %w", err)
@@ -492,6 +493,17 @@ func PrincipalTransactionsForRule(
 	accruals []models.InterestAccrual,
 	rule *models.InterestRule,
 ) []models.Transaction {
+	return PrincipalTransactionsForRuleAt(transactions, accruals, rule, time.Time{})
+}
+
+// PrincipalTransactionsForRuleAt excludes accrual transactions that are not capitalized by asOfDate.
+func PrincipalTransactionsForRuleAt(
+	transactions []models.Transaction,
+	accruals []models.InterestAccrual,
+	rule *models.InterestRule,
+	asOfDate time.Time,
+) []models.Transaction {
+	asOfDate = dateOnly(asOfDate)
 	capitalizedTransactionIDs := make(map[string]struct{})
 	uncapitalizedTransactionIDs := make(map[string]struct{})
 
@@ -500,7 +512,7 @@ func PrincipalTransactionsForRule(
 		if accrual.AccountID != rule.AccountID || accrual.RuleID != rule.ID {
 			continue
 		}
-		if shouldCapitalizeOn(rule, accrual.AccrualDate) {
+		if accrualCapitalizedBy(rule, accrual.AccrualDate, asOfDate) {
 			capitalizedTransactionIDs[accrual.TransactionID] = struct{}{}
 			continue
 		}
@@ -520,6 +532,14 @@ func PrincipalTransactionsForRule(
 	}
 
 	return filtered
+}
+
+func accrualCapitalizedBy(rule *models.InterestRule, accrualDate, asOfDate time.Time) bool {
+	if asOfDate.IsZero() {
+		return shouldCapitalizeOn(rule, accrualDate)
+	}
+	capitalizationDate, ok := capitalizationDateForAccrual(rule, accrualDate)
+	return ok && !capitalizationDate.After(asOfDate)
 }
 
 func validateRuleForAccrual(rule *models.InterestRule) error {
@@ -651,6 +671,54 @@ func nextAccrualPeriodStart(rule *models.InterestRule, accruals []models.Interes
 	return start
 }
 
+func recalculationStartDate(rule *models.InterestRule, fromDate, toDate time.Time) time.Time {
+	fromDate = dateOnly(fromDate)
+	toDate = dateOnly(toDate)
+	if rule.AccrualFrequency == models.AccrualFrequencyDaily {
+		return fromDate
+	}
+	for day := fromDate; !day.After(toDate); day = day.AddDate(0, 0, 1) {
+		if shouldPostAccrual(rule, day) {
+			return minDate(fromDate, accrualPeriodStart(rule, day))
+		}
+	}
+	return fromDate
+}
+
+func accrualPeriodStart(rule *models.InterestRule, date time.Time) time.Time {
+	date = dateOnly(date)
+	start := dateOnly(rule.StartDate)
+	switch rule.AccrualFrequency {
+	case models.AccrualFrequencyMonthly:
+		monthStart := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, time.UTC)
+		return maxDate(start, monthStart)
+	case models.AccrualFrequencyEndOfTerm:
+		return start
+	default:
+		return date
+	}
+}
+
+func capitalizationDateForAccrual(rule *models.InterestRule, accrualDate time.Time) (time.Time, bool) {
+	accrualDate = dateOnly(accrualDate)
+	if !ruleActiveOn(rule, accrualDate) {
+		return time.Time{}, false
+	}
+	switch rule.CapitalizationFrequency {
+	case models.CapitalizationFrequencyDaily:
+		return accrualDate, true
+	case models.CapitalizationFrequencyMonthly:
+		return lastActiveDayOfMonth(rule, accrualDate), true
+	case models.CapitalizationFrequencyEndOfTerm:
+		if rule.EndDate == nil {
+			return time.Time{}, false
+		}
+		return dateOnly(*rule.EndDate), true
+	default:
+		return time.Time{}, false
+	}
+}
+
 func shouldPostAccrual(rule *models.InterestRule, date time.Time) bool {
 	date = dateOnly(date)
 	if !ruleActiveOn(rule, date) {
@@ -681,15 +749,38 @@ func shouldCapitalizeOn(rule *models.InterestRule, date time.Time) bool {
 }
 
 func isLastActiveDayOfMonth(rule *models.InterestRule, date time.Time) bool {
-	next := date.AddDate(0, 0, 1)
-	if rule.EndDate != nil && next.After(dateOnly(*rule.EndDate)) {
-		return true
+	return lastActiveDayOfMonth(rule, date).Equal(dateOnly(date))
+}
+
+func lastActiveDayOfMonth(rule *models.InterestRule, date time.Time) time.Time {
+	date = dateOnly(date)
+	monthEnd := time.Date(date.Year(), date.Month()+1, 0, 0, 0, 0, 0, time.UTC)
+	if rule.EndDate != nil {
+		return minDate(monthEnd, dateOnly(*rule.EndDate))
 	}
-	return next.Month() != date.Month()
+	return monthEnd
 }
 
 func isEndOfTerm(rule *models.InterestRule, date time.Time) bool {
 	return rule.EndDate != nil && dateOnly(*rule.EndDate).Equal(dateOnly(date))
+}
+
+func minDate(a, b time.Time) time.Time {
+	a = dateOnly(a)
+	b = dateOnly(b)
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+func maxDate(a, b time.Time) time.Time {
+	a = dateOnly(a)
+	b = dateOnly(b)
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 func daysInYear(convention models.DayCountConvention, date time.Time) int {

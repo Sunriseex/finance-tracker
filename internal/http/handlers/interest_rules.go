@@ -228,7 +228,7 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	transactions = transactionsUpToDate(transactions, accrualDate)
-	transactions = services.PrincipalTransactionsForRule(transactions, accruals, rule)
+	transactions = services.PrincipalTransactionsForRuleAt(transactions, accruals, rule, accrualDate)
 
 	balance, err := services.NewBalanceService().Calculate(r.Context(), services.CalculateBalanceRequest{
 		AccountID:    accountID,
