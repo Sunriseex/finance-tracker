@@ -326,8 +326,8 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	}
 
 	calculationFromDate := recalculationStartDate(&req.Rule, fromDate, toDate)
-	workingTransactions := excludeAccrualTransactions(req.Transactions, req.ExistingAccruals, &req.Rule, fromDate, toDate)
-	workingTransactions = PrincipalTransactionsForRuleAt(workingTransactions, req.ExistingAccruals, &req.Rule, calculationFromDate)
+	baseTransactions := excludeAccrualTransactions(req.Transactions, req.ExistingAccruals, &req.Rule, fromDate, toDate)
+	workingTransactions := PrincipalTransactionsForRuleAt(baseTransactions, req.ExistingAccruals, &req.Rule, calculationFromDate)
 	response := &RecalculateRuleInterestResponse{
 		AccountID: req.Rule.AccountID,
 		RuleID:    req.Rule.ID,
@@ -338,7 +338,7 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	var pendingAmount int64
 	var pendingBalance int64
 	var pendingRate int64
-	var pendingCapitalization []models.Transaction
+	pendingCapitalization := pendingCapitalizationTransactionsBefore(baseTransactions, req.ExistingAccruals, &req.Rule, calculationFromDate, toDate)
 
 	for day := calculationFromDate; !day.After(toDate); day = day.AddDate(0, 0, 1) {
 		select {
@@ -539,7 +539,7 @@ func accrualCapitalizedBy(rule *models.InterestRule, accrualDate, asOfDate time.
 		return shouldCapitalizeOn(rule, accrualDate)
 	}
 	capitalizationDate, ok := capitalizationDateForAccrual(rule, accrualDate)
-	return ok && !capitalizationDate.After(asOfDate)
+	return ok && capitalizationDate.Before(asOfDate)
 }
 
 func validateRuleForAccrual(rule *models.InterestRule) error {
@@ -590,6 +590,48 @@ func excludeAccrualTransactions(transactions []models.Transaction, accruals []mo
 	return filtered
 }
 
+func pendingCapitalizationTransactionsBefore(
+	transactions []models.Transaction,
+	accruals []models.InterestAccrual,
+	rule *models.InterestRule,
+	fromDate,
+	toDate time.Time,
+) []models.Transaction {
+	if rule.CapitalizationFrequency == models.CapitalizationFrequencyNone ||
+		rule.CapitalizationFrequency == "" ||
+		rule.CapitalizationFrequency == models.CapitalizationFrequencyDaily {
+		return nil
+	}
+
+	fromDate = dateOnly(fromDate)
+	toDate = dateOnly(toDate)
+	transactionByID := make(map[string]models.Transaction, len(transactions))
+	for i := range transactions {
+		transactionByID[transactions[i].ID] = transactions[i]
+	}
+
+	pending := make([]models.Transaction, 0)
+	for i := range accruals {
+		accrual := &accruals[i]
+		accrualDate := dateOnly(accrual.AccrualDate)
+		if accrual.AccountID != rule.AccountID ||
+			accrual.RuleID != rule.ID ||
+			!accrualDate.Before(fromDate) {
+			continue
+		}
+
+		capitalizationDate, ok := capitalizationDateForAccrual(rule, accrualDate)
+		if !ok || capitalizationDate.Before(fromDate) || capitalizationDate.After(toDate) {
+			continue
+		}
+
+		if tx, ok := transactionByID[accrual.TransactionID]; ok {
+			pending = append(pending, tx)
+		}
+	}
+	return pending
+}
+
 func transactionsUpToDate(transactions []models.Transaction, date time.Time) []models.Transaction {
 	date = dateOnly(date)
 	filtered := make([]models.Transaction, 0, len(transactions))
@@ -609,8 +651,23 @@ func calculateAccrualAmount(ctx context.Context, rule *models.InterestRule, tran
 		if balanceMinor <= 0 {
 			return 0, 0, 0, validationError("balance must be positive")
 		}
-		rateBps := effectiveRateBps(rule, toDate)
-		return calculateDailyInterestMinor(balanceMinor, rateBps, rule.DayCountConvention, toDate), balanceMinor, rateBps, nil
+		var total int64
+		var lastRate int64
+		for day := fromDate; !day.After(toDate); day = day.AddDate(0, 0, 1) {
+			select {
+			case <-ctx.Done():
+				return 0, 0, 0, fmt.Errorf("calculate accrual amount: %w", ctx.Err())
+			default:
+			}
+
+			if !ruleActiveOn(rule, day) {
+				continue
+			}
+			rateBps := effectiveRateBps(rule, day)
+			total += calculateDailyInterestMinor(balanceMinor, rateBps, rule.DayCountConvention, day)
+			lastRate = rateBps
+		}
+		return total, balanceMinor, lastRate, nil
 	}
 
 	var total int64
