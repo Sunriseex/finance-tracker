@@ -61,12 +61,7 @@ func (h *Handler) createInterestRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service := services.NewInterestRuleService(
-		services.NewTransactionService(h.store.Transactions()),
-		services.WithInterestRuleRepository(h.store.InterestRules()),
-		services.WithInterestAccrualRepository(h.store.InterestAccruals()),
-	)
-	rule, err := service.Create(r.Context(), &services.CreateInterestRuleRequest{
+	rule, err := h.interestRules.Create(r.Context(), &services.CreateInterestRuleRequest{
 		AccountID:               accountID,
 		AnnualRateBps:           req.AnnualRateBps,
 		PromoRateBps:            req.PromoRateBps,
@@ -78,7 +73,7 @@ func (h *Handler) createInterestRule(w http.ResponseWriter, r *http.Request) {
 		EndDate:                 endDate,
 	})
 	if err != nil {
-		writeValidationOrServiceError(w, err)
+		writeServiceError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, dto.InterestRuleFromModel(rule))
@@ -247,18 +242,15 @@ func (h *Handler) accrueInterest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service := services.NewInterestRuleService(
-		services.NewTransactionService(h.store.Transactions()),
-		services.WithInterestAccrualRepository(h.store.InterestAccruals()),
-	)
-	result, err := service.Accrue(r.Context(), &services.AccrueRuleInterestRequest{
+	result, err := h.interestRules.Accrue(r.Context(), &services.AccrueRuleInterestRequest{
 		Rule:             *rule,
 		BalanceMinor:     balance.BalanceMinor,
 		AccrualDate:      accrualDate,
+		Transactions:     transactions,
 		ExistingAccruals: accruals,
 	})
 	if err != nil {
-		writeValidationOrServiceError(w, err)
+		writeServiceError(w, err)
 		return
 	}
 	if result.Skipped {
@@ -332,11 +324,7 @@ func (h *Handler) recalculateInterest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service := services.NewInterestRuleService(
-		services.NewTransactionService(h.store.Transactions()),
-		services.WithInterestAccrualRepository(h.store.InterestAccruals()),
-	)
-	result, err := service.Recalculate(r.Context(), &services.RecalculateRuleInterestRequest{
+	result, err := h.interestRules.Recalculate(r.Context(), &services.RecalculateRuleInterestRequest{
 		Rule:             *rule,
 		Transactions:     transactions,
 		ExistingAccruals: accruals,
@@ -344,7 +332,7 @@ func (h *Handler) recalculateInterest(w http.ResponseWriter, r *http.Request) {
 		ToDate:           toDate,
 	})
 	if err != nil {
-		writeValidationOrServiceError(w, err)
+		writeServiceError(w, err)
 		return
 	}
 

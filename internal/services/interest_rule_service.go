@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -60,6 +61,7 @@ type AccrueRuleInterestRequest struct {
 	Rule             models.InterestRule
 	BalanceMinor     int64
 	AccrualDate      time.Time
+	Transactions     []models.Transaction
 	ExistingAccruals []models.InterestAccrual
 }
 
@@ -88,6 +90,25 @@ type RecalculateRuleInterestResponse struct {
 	SkippedDays      int64
 	TotalAmountMinor int64
 	Transactions     []models.Transaction
+	Accruals         []models.InterestAccrual
+}
+
+type ForecastRuleInterestRequest struct {
+	Rule         models.InterestRule
+	Transactions []models.Transaction
+	FromDate     time.Time
+	Days         int
+	Today        time.Time
+}
+
+type ForecastRuleInterestResponse struct {
+	AccountID        string
+	RuleID           string
+	FromDate         time.Time
+	ToDate           time.Time
+	Days             int
+	ProjectedMinor   int64
+	ProjectedBalance int64
 	Accruals         []models.InterestAccrual
 }
 
@@ -212,30 +233,19 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 		return nil, validationError(fmt.Sprintf("interest rule is not active on %s", accrualDate.Format(time.DateOnly)))
 	}
 
-	if req.Rule.AccrualFrequency != models.AccrualFrequencyDaily {
-		return nil, validationError(fmt.Sprintf("unsupported accrual frequency for manual accrual: %s", req.Rule.AccrualFrequency))
-	}
-
-	if req.Rule.CapitalizationFrequency != models.CapitalizationFrequencyDaily &&
-		req.Rule.CapitalizationFrequency != models.CapitalizationFrequencyNone &&
-		req.Rule.CapitalizationFrequency != "" {
-		return nil, validationError(fmt.Sprintf("unsupported capitalization frequency: %s", req.Rule.CapitalizationFrequency))
+	if !shouldPostAccrual(&req.Rule, accrualDate) {
+		return nil, validationError(fmt.Sprintf("interest rule is not payable on %s", accrualDate.Format(time.DateOnly)))
 	}
 
 	if hasInterestAccrual(req.ExistingAccruals, &req.Rule, accrualDate) {
 		return &AccrueRuleInterestResponse{Skipped: true}, nil
 	}
 
-	if req.BalanceMinor <= 0 {
-		return nil, validationError("balance must be positive")
+	periodStart := nextAccrualPeriodStart(&req.Rule, req.ExistingAccruals, accrualDate)
+	amountMinor, balanceMinor, rateBps, err := calculateAccrualAmount(ctx, &req.Rule, req.Transactions, req.BalanceMinor, periodStart, accrualDate)
+	if err != nil {
+		return nil, err
 	}
-
-	amountMinor := calculateDailyInterestMinor(
-		req.BalanceMinor,
-		effectiveRateBps(&req.Rule, accrualDate),
-		req.Rule.DayCountConvention,
-		accrualDate,
-	)
 	if amountMinor <= 0 {
 		return nil, validationError("calculated interest is zero")
 	}
@@ -258,13 +268,16 @@ func (s *InterestRuleService) Accrue(ctx context.Context, req *AccrueRuleInteres
 		TransactionID: tx.ID,
 		AccrualDate:   accrualDate,
 		AmountMinor:   amountMinor,
-		BalanceMinor:  req.BalanceMinor,
-		AnnualRateBps: effectiveRateBps(&req.Rule, accrualDate),
+		BalanceMinor:  balanceMinor,
+		AnnualRateBps: rateBps,
 		CreatedAt:     time.Now(),
 	}
 
 	if s.accruals != nil {
 		if err := s.accruals.CreateWithTransaction(ctx, tx, accrual); err != nil {
+			if errors.Is(err, repository.ErrConflict) {
+				return &AccrueRuleInterestResponse{Skipped: true}, nil
+			}
 			return nil, fmt.Errorf("save interest accrual with transaction: %w", err)
 		}
 	} else if s.transactions.repo != nil {
@@ -292,15 +305,6 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	if err := validateRuleForRecalculation(&req.Rule); err != nil {
 		return nil, err
 	}
-	if req.Rule.AccrualFrequency != models.AccrualFrequencyDaily {
-		return nil, validationError(fmt.Sprintf("unsupported accrual frequency for recalculation: %s", req.Rule.AccrualFrequency))
-	}
-	if req.Rule.CapitalizationFrequency != models.CapitalizationFrequencyDaily &&
-		req.Rule.CapitalizationFrequency != models.CapitalizationFrequencyNone &&
-		req.Rule.CapitalizationFrequency != "" {
-		return nil, validationError(fmt.Sprintf("unsupported capitalization frequency: %s", req.Rule.CapitalizationFrequency))
-	}
-
 	fromDate := dateOnly(req.FromDate)
 	if fromDate.IsZero() {
 		fromDate = dateOnly(req.Rule.StartDate)
@@ -332,6 +336,10 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 		ToDate:    toDate,
 	}
 
+	var pendingAmount int64
+	var pendingBalance int64
+	var pendingRate int64
+
 	for day := fromDate; !day.After(toDate); day = day.AddDate(0, 0, 1) {
 		select {
 		case <-ctx.Done():
@@ -362,11 +370,18 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 			response.SkippedDays++
 			continue
 		}
+		pendingAmount += amountMinor
+		pendingBalance = balance.BalanceMinor
+		pendingRate = rateBps
+
+		if !shouldPostAccrual(&req.Rule, day) {
+			continue
+		}
 
 		tx, err := buildTransaction(ctx, &CreateTransactionRequest{
 			AccountID:   req.Rule.AccountID,
 			Type:        models.TransactionTypeInterestIncome,
-			AmountMinor: amountMinor,
+			AmountMinor: pendingAmount,
 			Description: interestAccrualDescription(req.Rule.ID, day),
 			OccurredAt:  day,
 		})
@@ -380,20 +395,21 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 			RuleID:        req.Rule.ID,
 			TransactionID: tx.ID,
 			AccrualDate:   day,
-			AmountMinor:   amountMinor,
-			BalanceMinor:  balance.BalanceMinor,
-			AnnualRateBps: rateBps,
+			AmountMinor:   pendingAmount,
+			BalanceMinor:  pendingBalance,
+			AnnualRateBps: pendingRate,
 			CreatedAt:     time.Now(),
 		}
 
 		response.Transactions = append(response.Transactions, *tx)
 		response.Accruals = append(response.Accruals, accrual)
 		response.CreatedAccruals++
-		response.TotalAmountMinor += amountMinor
+		response.TotalAmountMinor += pendingAmount
 
-		if req.Rule.CapitalizationFrequency == models.CapitalizationFrequencyDaily {
+		if shouldCapitalizeOn(&req.Rule, day) {
 			workingTransactions = append(workingTransactions, *tx)
 		}
+		pendingAmount = 0
 	}
 
 	if s.accruals != nil {
@@ -405,6 +421,62 @@ func (s *InterestRuleService) Recalculate(ctx context.Context, req *RecalculateR
 	}
 
 	return response, nil
+}
+
+func (s *InterestRuleService) Forecast(ctx context.Context, req *ForecastRuleInterestRequest) (*ForecastRuleInterestResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("forecast interest: %w", err)
+	}
+	if req == nil {
+		return nil, validationError("forecast interest request is required")
+	}
+	if err := validateRuleForRecalculation(&req.Rule); err != nil {
+		return nil, err
+	}
+	if req.Days <= 0 {
+		return nil, validationError("forecast days must be positive")
+	}
+
+	fromDate := dateOnly(req.FromDate)
+	if fromDate.IsZero() {
+		fromDate = dateOnly(req.Today)
+		if fromDate.IsZero() {
+			fromDate = dateOnly(time.Now())
+		}
+	}
+	toDate := fromDate.AddDate(0, 0, req.Days-1)
+
+	forecastRule := req.Rule
+	forecastRule.AccrualFrequency = models.AccrualFrequencyDaily
+	result, err := NewInterestRuleService(nil).Recalculate(ctx, &RecalculateRuleInterestRequest{
+		Rule:         forecastRule,
+		Transactions: req.Transactions,
+		FromDate:     fromDate,
+		ToDate:       toDate,
+		Today:        req.Today,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	balance, err := NewBalanceService().Calculate(ctx, CalculateBalanceRequest{
+		AccountID:    req.Rule.AccountID,
+		Transactions: append(slicesClone(req.Transactions), result.Transactions...),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("calculate forecast balance: %w", err)
+	}
+
+	return &ForecastRuleInterestResponse{
+		AccountID:        req.Rule.AccountID,
+		RuleID:           req.Rule.ID,
+		FromDate:         fromDate,
+		ToDate:           toDate,
+		Days:             req.Days,
+		ProjectedMinor:   result.TotalAmountMinor,
+		ProjectedBalance: balance.BalanceMinor,
+		Accruals:         result.Accruals,
+	}, nil
 }
 
 func excludeAllRuleAccrualTransactions(
@@ -449,6 +521,9 @@ func validateRuleForAccrual(rule *models.InterestRule) error {
 	if !validAccrualFrequency(rule.AccrualFrequency) {
 		return validationError(fmt.Sprintf("invalid accrual frequency: %s", rule.AccrualFrequency))
 	}
+	if !validCapitalizationFrequency(rule.CapitalizationFrequency) {
+		return validationError(fmt.Sprintf("invalid capitalization frequency: %s", rule.CapitalizationFrequency))
+	}
 	if !validDayCountConvention(rule.DayCountConvention) {
 		return validationError(fmt.Sprintf("invalid day count convention: %s", rule.DayCountConvention))
 	}
@@ -489,12 +564,120 @@ func transactionsUpToDate(transactions []models.Transaction, date time.Time) []m
 	return filtered
 }
 
+func calculateAccrualAmount(ctx context.Context, rule *models.InterestRule, transactions []models.Transaction, balanceMinor int64, fromDate, toDate time.Time) (amountMinor, finalBalanceMinor, finalRateBps int64, err error) {
+	if toDate.Before(fromDate) {
+		return 0, 0, 0, validationError("accrual period is empty")
+	}
+	if len(transactions) == 0 {
+		if balanceMinor <= 0 {
+			return 0, 0, 0, validationError("balance must be positive")
+		}
+		rateBps := effectiveRateBps(rule, toDate)
+		return calculateDailyInterestMinor(balanceMinor, rateBps, rule.DayCountConvention, toDate), balanceMinor, rateBps, nil
+	}
+
+	var total int64
+	var lastBalance int64
+	var lastRate int64
+	for day := fromDate; !day.After(toDate); day = day.AddDate(0, 0, 1) {
+		select {
+		case <-ctx.Done():
+			return 0, 0, 0, fmt.Errorf("calculate accrual amount: %w", ctx.Err())
+		default:
+		}
+
+		if !ruleActiveOn(rule, day) {
+			continue
+		}
+		balance, err := NewBalanceService().Calculate(ctx, CalculateBalanceRequest{
+			AccountID:    rule.AccountID,
+			Transactions: transactionsUpToDate(transactions, day),
+		})
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("calculate accrual balance: %w", err)
+		}
+		if balance.BalanceMinor <= 0 {
+			continue
+		}
+		rateBps := effectiveRateBps(rule, day)
+		total += calculateDailyInterestMinor(balance.BalanceMinor, rateBps, rule.DayCountConvention, day)
+		lastBalance = balance.BalanceMinor
+		lastRate = rateBps
+	}
+	return total, lastBalance, lastRate, nil
+}
+
 func calculateDailyInterestMinor(balanceMinor, rateBps int64, convention models.DayCountConvention, date time.Time) int64 {
 	amount := decimal.NewFromInt(balanceMinor)
 	rate := decimal.NewFromInt(rateBps).Div(decimal.NewFromInt(10_000))
 	days := decimal.NewFromInt(int64(daysInYear(convention, date)))
 
 	return amount.Mul(rate).Div(days).Round(0).IntPart()
+}
+
+func nextAccrualPeriodStart(rule *models.InterestRule, accruals []models.InterestAccrual, accrualDate time.Time) time.Time {
+	start := dateOnly(rule.StartDate)
+	for i := range accruals {
+		accrual := &accruals[i]
+		if accrual.AccountID != rule.AccountID || accrual.RuleID != rule.ID {
+			continue
+		}
+		date := dateOnly(accrual.AccrualDate)
+		if date.Before(accrualDate) && !date.Before(start) {
+			start = date.AddDate(0, 0, 1)
+		}
+	}
+	return start
+}
+
+func shouldPostAccrual(rule *models.InterestRule, date time.Time) bool {
+	date = dateOnly(date)
+	if !ruleActiveOn(rule, date) {
+		return false
+	}
+
+	switch rule.AccrualFrequency {
+	case models.AccrualFrequencyMonthly:
+		return isLastActiveDayOfMonth(rule, date)
+	case models.AccrualFrequencyEndOfTerm:
+		return isEndOfTerm(rule, date)
+	default:
+		return true
+	}
+}
+
+func shouldCapitalizeOn(rule *models.InterestRule, date time.Time) bool {
+	switch rule.CapitalizationFrequency {
+	case models.CapitalizationFrequencyDaily:
+		return true
+	case models.CapitalizationFrequencyMonthly:
+		return isLastActiveDayOfMonth(rule, date)
+	case models.CapitalizationFrequencyEndOfTerm:
+		return isEndOfTerm(rule, date)
+	default:
+		return false
+	}
+}
+
+func isLastActiveDayOfMonth(rule *models.InterestRule, date time.Time) bool {
+	next := date.AddDate(0, 0, 1)
+	if rule.EndDate != nil && next.After(dateOnly(*rule.EndDate)) {
+		return true
+	}
+	return next.Month() != date.Month()
+}
+
+func isEndOfTerm(rule *models.InterestRule, date time.Time) bool {
+	return rule.EndDate != nil && dateOnly(*rule.EndDate).Equal(dateOnly(date))
+}
+
+func slicesClone(items []models.Transaction) []models.Transaction {
+	if len(items) == 0 {
+		return nil
+	}
+	cloned := make([]models.Transaction, len(items))
+	copy(cloned, items)
+	return cloned
 }
 
 func daysInYear(convention models.DayCountConvention, date time.Time) int {
@@ -568,7 +751,8 @@ func validAccrualFrequency(frequency models.AccrualFrequency) bool {
 
 func validCapitalizationFrequency(frequency models.CapitalizationFrequency) bool {
 	switch frequency {
-	case models.CapitalizationFrequencyDaily,
+	case "",
+		models.CapitalizationFrequencyDaily,
 		models.CapitalizationFrequencyMonthly,
 		models.CapitalizationFrequencyEndOfTerm,
 		models.CapitalizationFrequencyNone:
@@ -601,6 +785,9 @@ func validateRuleForRecalculation(rule *models.InterestRule) error {
 	}
 	if !validAccrualFrequency(rule.AccrualFrequency) {
 		return validationError(fmt.Sprintf("invalid accrual frequency: %s", rule.AccrualFrequency))
+	}
+	if !validCapitalizationFrequency(rule.CapitalizationFrequency) {
+		return validationError(fmt.Sprintf("invalid capitalization frequency: %s", rule.CapitalizationFrequency))
 	}
 	if !validDayCountConvention(rule.DayCountConvention) {
 		return validationError(fmt.Sprintf("invalid day count convention: %s", rule.DayCountConvention))

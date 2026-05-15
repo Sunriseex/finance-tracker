@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sunriseex/capitalflow/internal/models"
+	"github.com/sunriseex/capitalflow/internal/repository"
 )
 
 type InterestAccrualRepository struct {
@@ -167,6 +168,9 @@ func insertInterestAccrual(ctx context.Context, execer sqlExecer, accrual *model
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, accrual.ID, accrual.AccountID, accrual.RuleID, accrual.TransactionID, accrual.AccrualDate, accrual.AmountMinor, accrual.BalanceMinor, accrual.AnnualRateBps, accrual.CreatedAt)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("insert interest accrual: %w", repository.ErrConflict)
+		}
 		return fmt.Errorf("insert interest accrual: %w", err)
 	}
 	return nil
