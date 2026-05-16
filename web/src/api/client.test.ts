@@ -46,23 +46,42 @@ describe("api client", () => {
   });
 
   it("does not store refresh tokens from auth responses", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
-      ...session,
-      refresh_token: "server-refresh",
-      refresh_expires_at: "2026-06-11T10:00:00Z",
-    }));
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        ...session,
+        refresh_token: "login-refresh",
+        refresh_expires_at: "2026-06-11T10:00:00Z",
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ...session,
+        access_token: "setup-access",
+        refresh_token: "setup-refresh",
+        refresh_expires_at: "2026-06-11T10:00:00Z",
+      }));
 
     await expect(api.login({ email: "user@example.com", password: "password" })).resolves.toMatchObject({
       access_token: "new-access",
     });
-
-    const init = vi.mocked(fetch).mock.calls[0]?.[1];
-    expect(init).toEqual(expect.objectContaining({
-      method: "POST",
-      credentials: "include",
-    }));
     expect(localStorage.getItem("capitalflow_api_token")).toBe("new-access");
     expect(localStorage.getItem("capitalflow_refresh_token")).toBeNull();
+
+    await expect(api.setup({
+      email: "setup@example.com",
+      password: "password",
+      primary_currency: "RUB",
+    })).resolves.toMatchObject({
+      access_token: "setup-access",
+    });
+    expect(localStorage.getItem("capitalflow_api_token")).toBe("setup-access");
+    expect(localStorage.getItem("capitalflow_refresh_token")).toBeNull();
+
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+      }));
+    }
   });
 
   it("logs out using cookies only", async () => {

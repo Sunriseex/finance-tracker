@@ -197,6 +197,16 @@ func TestAuthResponsesDoNotExposeRefreshTokenJSON(t *testing.T) {
 				return req
 			},
 		},
+		{
+			name:       "login",
+			statusCode: http.StatusOK,
+			request: func(_ *http.Cookie) *http.Request {
+				return httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/login", strings.NewReader(`{
+					"email":"login@example.com",
+					"password":"correct horse battery staple"
+				}`))
+			},
+		},
 	} {
 		router := newTestAuthRouter(t)
 		rec := httptest.NewRecorder()
@@ -213,6 +223,18 @@ func TestAuthResponsesDoNotExposeRefreshTokenJSON(t *testing.T) {
 				t.Fatalf("setup for refresh status = %d, want %d: %s", setupRec.Code, http.StatusCreated, setupRec.Body.String())
 			}
 			req = tc.request(requireRefreshCookie(t, setupRec.Result().Cookies()))
+		} else if tc.name == "login" {
+			setupRec := httptest.NewRecorder()
+			setupReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/setup", strings.NewReader(`{
+				"email":"login@example.com",
+				"password":"correct horse battery staple",
+				"primary_currency":"RUB"
+			}`))
+			router.ServeHTTP(setupRec, setupReq)
+			if setupRec.Code != http.StatusCreated {
+				t.Fatalf("setup for login status = %d, want %d: %s", setupRec.Code, http.StatusCreated, setupRec.Body.String())
+			}
+			req = tc.request(nil)
 		} else {
 			req = tc.request(nil)
 		}
