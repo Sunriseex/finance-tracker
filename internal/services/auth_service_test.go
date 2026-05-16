@@ -575,6 +575,45 @@ func TestAuthServiceChangePasswordRejectsWrongCurrentPassword(t *testing.T) {
 	}
 }
 
+func TestAuthServiceChangePasswordDoesNotRevokeSessionsWhenPasswordUpdateFails(t *testing.T) {
+	service, users, refresh, audit := newTestAuthService(t)
+	users.updatePasswordErr = errors.New("database failed")
+	users.byID["user-1"] = &models.User{
+		ID:           "user-1",
+		Email:        "user@example.com",
+		PasswordHash: "hash:correct horse battery staple",
+	}
+	refresh.byHash["token-1"] = &models.RefreshToken{
+		ID:        "refresh-1",
+		UserID:    "user-1",
+		TokenHash: "token-1",
+		ExpiresAt: service.now().Add(time.Hour),
+		CreatedAt: service.now(),
+	}
+
+	err := service.ChangePassword(t.Context(), ChangePasswordRequest{
+		UserID:          "user-1",
+		CurrentPassword: "correct horse battery staple",
+		NewPassword:     "fresh correct horse battery staple 2026!",
+	})
+
+	if err == nil {
+		t.Fatal("expected password update error")
+	}
+	if users.byID["user-1"].PasswordHash != "hash:correct horse battery staple" {
+		t.Fatal("password hash changed")
+	}
+	if refresh.byHash["token-1"].RevokedAt != nil {
+		t.Fatal("refresh token was revoked before password update succeeded")
+	}
+	if refresh.revokeByUserCalls != 0 {
+		t.Fatalf("revoke by user calls = %d, want 0", refresh.revokeByUserCalls)
+	}
+	if !audit.hasEventReason("change_password_failed", "save_failed") {
+		t.Fatal("expected save failure audit event")
+	}
+}
+
 func TestAuthServiceListSessionsMarksCurrentAndActive(t *testing.T) {
 	service, _, refresh, audit := newTestAuthService(t)
 
@@ -706,8 +745,9 @@ func newTestAuthService(t *testing.T) (*AuthService, *fakeUserRepo, *fakeRefresh
 }
 
 type fakeUserRepo struct {
-	byID      map[string]*models.User
-	createErr error
+	byID              map[string]*models.User
+	createErr         error
+	updatePasswordErr error
 }
 
 func (r *fakeUserRepo) Create(_ context.Context, user *models.User) error {
@@ -771,6 +811,9 @@ func (r *fakeUserRepo) ClearLoginFailures(_ context.Context, id string, updatedA
 }
 
 func (r *fakeUserRepo) UpdatePassword(_ context.Context, id, passwordHash string, updatedAt time.Time) error {
+	if r.updatePasswordErr != nil {
+		return r.updatePasswordErr
+	}
 	user, ok := r.byID[id]
 	if !ok {
 		return repository.ErrNotFound

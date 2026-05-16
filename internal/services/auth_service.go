@@ -348,13 +348,13 @@ func (s *AuthService) ChangePassword(ctx context.Context, req ChangePasswordRequ
 		return fmt.Errorf("hash password: %w", err)
 	}
 	now := s.now()
-	if err := s.refresh.RevokeByUser(ctx, user.ID, now, refreshRevokedReasonPasswordChange); err != nil {
-		s.auditEvent(ctx, "change_password_failed", user.Email, &user.ID, false, "revoke_sessions_failed")
-		return fmt.Errorf("revoke user refresh tokens: %w", err)
-	}
 	if err := s.users.UpdatePassword(ctx, user.ID, hash, now); err != nil {
 		s.auditEvent(ctx, "change_password_failed", user.Email, &user.ID, false, "save_failed")
 		return fmt.Errorf("update password: %w", err)
+	}
+	if err := s.refresh.RevokeByUser(ctx, user.ID, now, refreshRevokedReasonPasswordChange); err != nil {
+		s.auditEvent(ctx, "change_password_failed", user.Email, &user.ID, false, "revoke_sessions_failed")
+		return fmt.Errorf("revoke user refresh tokens: %w", err)
 	}
 	s.auditEvent(ctx, "change_password_success", user.Email, &user.ID, true, "")
 	return nil
