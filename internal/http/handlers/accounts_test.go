@@ -211,7 +211,7 @@ func (r *testTransactionRepo) CreateMany(context.Context, []models.Transaction) 
 	return nil
 }
 
-func (r *testTransactionRepo) CreateTransfer(context.Context, string, string, string, []models.Transaction) error {
+func (r *testTransactionRepo) CreateTransfer(context.Context, string, string, string, string, string, []models.Transaction) error {
 	return nil
 }
 

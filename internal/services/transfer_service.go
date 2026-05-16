@@ -58,8 +58,10 @@ func (s *TransferService) Create(ctx context.Context, req *CreateTransferRequest
 
 	inAmountMinor := req.AmountMinor
 	exchangeRate := "1"
-	if strings.TrimSpace(req.FromCurrency) != "" || strings.TrimSpace(req.ToCurrency) != "" {
-		convertedAmountMinor, rate, err := s.currency.ConvertMinor(ctx, req.AmountMinor, req.FromCurrency, req.ToCurrency)
+	fromCurrency := strings.TrimSpace(req.FromCurrency)
+	toCurrency := strings.TrimSpace(req.ToCurrency)
+	if fromCurrency != "" || toCurrency != "" {
+		convertedAmountMinor, rate, err := s.currency.ConvertMinor(ctx, req.AmountMinor, fromCurrency, toCurrency)
 		if err != nil {
 			return nil, fmt.Errorf("convert transfer amount: %w", err)
 		}
@@ -69,7 +71,7 @@ func (s *TransferService) Create(ctx context.Context, req *CreateTransferRequest
 
 	inRelatedID := fromAccountID
 	outRelatedID := toAccountID
-	created, err := s.transactions.CreateTransfer(ctx, strings.TrimSpace(req.UserID), fromAccountID, toAccountID, &CreateTransactionRequest{
+	created, err := s.transactions.CreateTransfer(ctx, strings.TrimSpace(req.UserID), fromAccountID, toAccountID, fromCurrency, toCurrency, &CreateTransactionRequest{
 		AccountID:        fromAccountID,
 		RelatedAccountID: &outRelatedID,
 		Type:             models.TransactionTypeTransferOut,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -74,7 +75,7 @@ func (r *TransactionRepository) CreateMany(ctx context.Context, transactions []m
 	return nil
 }
 
-func (r *TransactionRepository) CreateTransfer(ctx context.Context, userID, fromAccountID, toAccountID string, transactions []models.Transaction) error {
+func (r *TransactionRepository) CreateTransfer(ctx context.Context, userID, fromAccountID, toAccountID, fromCurrency, toCurrency string, transactions []models.Transaction) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin create transfer: %w", err)
@@ -86,7 +87,7 @@ func (r *TransactionRepository) CreateTransfer(ctx context.Context, userID, from
 	accountIDs := []string{fromAccountID, toAccountID}
 	slices.Sort(accountIDs)
 	rows, err := tx.Query(ctx, `
-		SELECT id
+		SELECT id, currency
 		FROM accounts
 		WHERE id IN ($1, $2) AND owner_user_id = $3
 		ORDER BY id
@@ -95,17 +96,29 @@ func (r *TransactionRepository) CreateTransfer(ctx context.Context, userID, from
 	if err != nil {
 		return fmt.Errorf("lock transfer accounts: %w", err)
 	}
-	var locked int
+	lockedCurrencies := map[string]string{}
 	for rows.Next() {
-		locked++
+		var id string
+		var currency string
+		if err := rows.Scan(&id, &currency); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan locked transfer account: %w", err)
+		}
+		lockedCurrencies[id] = currency
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return fmt.Errorf("lock transfer accounts rows: %w", err)
 	}
 	rows.Close()
-	if locked != 2 {
+	if len(lockedCurrencies) != 2 {
 		return fmt.Errorf("lock transfer accounts: %w", repository.ErrNotFound)
+	}
+	if strings.TrimSpace(fromCurrency) != "" && lockedCurrencies[fromAccountID] != strings.TrimSpace(fromCurrency) {
+		return fmt.Errorf("lock transfer accounts: %w", repository.ErrConflict)
+	}
+	if strings.TrimSpace(toCurrency) != "" && lockedCurrencies[toAccountID] != strings.TrimSpace(toCurrency) {
+		return fmt.Errorf("lock transfer accounts: %w", repository.ErrConflict)
 	}
 
 	for i := range transactions {

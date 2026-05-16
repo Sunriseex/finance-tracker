@@ -913,7 +913,7 @@ func TestTransactionCreateTransferLocksAccountsAndRollsBack(t *testing.T) {
 		wg.Go(func() {
 			relatedTo := toID
 			relatedFrom := fromID
-			errs <- transactions.CreateTransfer(ctx, userID, fromID, toID, []models.Transaction{
+			errs <- transactions.CreateTransfer(ctx, userID, fromID, toID, "RUB", "RUB", []models.Transaction{
 				{
 					ID:               uuid.NewString(),
 					AccountID:        fromID,
@@ -970,7 +970,7 @@ func TestTransactionCreateTransferLocksAccountsAndRollsBack(t *testing.T) {
 		t.Fatalf("create other user: %v", err)
 	}
 	otherAccount := transferTestAccount(t, store, otherUserID, "other")
-	err = transactions.CreateTransfer(ctx, userID, from.ID, otherAccount.ID, []models.Transaction{
+	err = transactions.CreateTransfer(ctx, userID, from.ID, otherAccount.ID, "RUB", "RUB", []models.Transaction{
 		{
 			ID:          uuid.NewString(),
 			AccountID:   from.ID,
@@ -997,6 +997,60 @@ func TestTransactionCreateTransferLocksAccountsAndRollsBack(t *testing.T) {
 	}
 	if len(got) != 4 {
 		t.Fatalf("failed transfer inserted rows, count = %d, want 4", len(got))
+	}
+}
+
+func TestTransactionCreateTransferRejectsStaleLockedCurrencies(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+	now := time.Now().UTC()
+	userID := uuid.NewString()
+	if err := store.Users().Create(ctx, &models.User{
+		ID:              userID,
+		Email:           "stale-transfer-currency@example.com",
+		PasswordHash:    "hash",
+		PrimaryCurrency: "RUB",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	from := transferTestAccount(t, store, userID, "from-stale-currency")
+	to := transferTestAccount(t, store, userID, "to-stale-currency")
+	to.Currency = "USD"
+	to.UpdatedAt = now.Add(time.Minute)
+	if err := store.Accounts().UpdateForUserEnforcingCurrencyInvariant(ctx, to, userID); err != nil {
+		t.Fatalf("update to account currency: %v", err)
+	}
+
+	err := store.Transactions().CreateTransfer(ctx, userID, from.ID, to.ID, "RUB", "KRW", []models.Transaction{
+		{
+			ID:          uuid.NewString(),
+			AccountID:   from.ID,
+			Type:        models.TransactionTypeTransferOut,
+			AmountMinor: 100,
+			OccurredAt:  now,
+			CreatedAt:   now,
+		},
+		{
+			ID:          uuid.NewString(),
+			AccountID:   to.ID,
+			Type:        models.TransactionTypeTransferIn,
+			AmountMinor: 1_625,
+			OccurredAt:  now,
+			CreatedAt:   now,
+		},
+	})
+	if !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("stale currency err = %v, want ErrConflict", err)
+	}
+	got, err := store.Transactions().ListByUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("list transactions: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("stale currency transfer inserted transactions: %+v", got)
 	}
 }
 

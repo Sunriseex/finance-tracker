@@ -104,11 +104,16 @@ func TestTransferServiceCreateConvertsCrossCurrencyAmount(t *testing.T) {
 	if got.ExchangeRate != "16.25" {
 		t.Fatalf("exchange rate = %s, want 16.25", got.ExchangeRate)
 	}
+	if repo.fromCurrency != "RUB" || repo.toCurrency != "KRW" {
+		t.Fatalf("repo currencies = %s/%s, want RUB/KRW", repo.fromCurrency, repo.toCurrency)
+	}
 }
 
 type batchTransactionRepo struct {
-	createCalls int
-	batches     [][]models.Transaction
+	createCalls  int
+	batches      [][]models.Transaction
+	fromCurrency string
+	toCurrency   string
 }
 
 func (r *batchTransactionRepo) Create(context.Context, *models.Transaction) error {
@@ -125,7 +130,9 @@ func (r *batchTransactionRepo) CreateMany(_ context.Context, transactions []mode
 	return nil
 }
 
-func (r *batchTransactionRepo) CreateTransfer(ctx context.Context, _, _, _ string, transactions []models.Transaction) error {
+func (r *batchTransactionRepo) CreateTransfer(ctx context.Context, _, _, _, fromCurrency, toCurrency string, transactions []models.Transaction) error {
+	r.fromCurrency = fromCurrency
+	r.toCurrency = toCurrency
 	return r.CreateMany(ctx, transactions)
 }
 
