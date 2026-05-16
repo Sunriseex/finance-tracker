@@ -35,3 +35,6 @@ web/dist/
 
 # Local design research
 .lazyweb/
+
+# reviews
+docs/reviews
