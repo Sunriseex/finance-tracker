@@ -170,6 +170,78 @@ func TestIdempotencyReplaysStoredMutationResponse(t *testing.T) {
 	}
 }
 
+func TestFinanceMutationsRequireIdempotencyKey(t *testing.T) {
+	tokens, pair := testProfileTokenPair(t)
+	store := newTestProfileStore()
+	store.refresh.byID[pair.RefreshTokenID] = activeTestRefreshToken(pair, "user-1")
+	router := NewRouter(store, &RouterConfig{TokenService: tokens})
+
+	tests := []struct {
+		name   string
+		path   string
+		method string
+		body   string
+	}{
+		{name: "transaction", path: "/api/v1/transactions", method: http.MethodPost, body: `{}`},
+		{name: "transfer", path: "/api/v1/transfers", method: http.MethodPost, body: `{}`},
+		{name: "accrue interest", path: "/api/v1/accounts/11111111-1111-1111-1111-111111111111/accrue-interest", method: http.MethodPost, body: `{}`},
+		{name: "recalculate interest", path: "/api/v1/accounts/11111111-1111-1111-1111-111111111111/recalculate-interest", method: http.MethodPost, body: `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusPreconditionRequired {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusPreconditionRequired, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestFinanceMutationIdempotencyReplaysStoredResponse(t *testing.T) {
+	tokens, pair := testProfileTokenPair(t)
+	store := newTestProfileStore()
+	store.accounts = &testAccountRepo{byID: map[string]*models.Account{
+		"11111111-1111-1111-1111-111111111111": testAccount("11111111-1111-1111-1111-111111111111", "user-1", "RUB"),
+	}}
+	transactions := &testTransactionRepo{transactionCountByAccount: map[string]int64{}}
+	store.transactions = transactions
+	store.refresh.byID[pair.RefreshTokenID] = activeTestRefreshToken(pair, "user-1")
+	router := NewRouter(store, &RouterConfig{TokenService: tokens})
+
+	body := `{
+		"account_id":"11111111-1111-1111-1111-111111111111",
+		"type":"income",
+		"amount_minor":1000
+	}`
+	var firstBody string
+	for i := range 2 {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/transactions", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+		req.Header.Set("Idempotency-Key", "create-income")
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("request %d status = %d, want %d: %s", i+1, rec.Code, http.StatusCreated, rec.Body.String())
+		}
+		if i == 0 {
+			firstBody = rec.Body.String()
+		} else if rec.Body.String() != firstBody {
+			t.Fatalf("replayed response body changed: got %s want %s", rec.Body.String(), firstBody)
+		}
+	}
+	if transactions.createCalls != 1 {
+		t.Fatalf("transaction create calls = %d, want 1", transactions.createCalls)
+	}
+}
+
 type testIdempotencyRepo struct {
 	records map[string]*models.IdempotencyRecord
 }
