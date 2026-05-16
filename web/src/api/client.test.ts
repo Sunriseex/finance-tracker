@@ -101,6 +101,17 @@ describe("api client", () => {
     expect(localStorage.getItem("capitalflow_refresh_token")).toBeNull();
   });
 
+  it("keeps local session when cookie logout fails", async () => {
+    setStoredToken("access");
+    localStorage.setItem("capitalflow_refresh_token", "legacy-refresh");
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError("network failed"));
+
+    await expect(api.logout()).rejects.toThrow("network failed");
+
+    expect(localStorage.getItem("capitalflow_api_token")).toBe("access");
+    expect(localStorage.getItem("capitalflow_refresh_token")).toBe("legacy-refresh");
+  });
+
   it("adds idempotency keys to mutations", async () => {
     setStoredToken("access");
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({

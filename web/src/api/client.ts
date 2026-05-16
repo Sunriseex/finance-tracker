@@ -230,7 +230,7 @@ export const api = {
   logout: async () => {
     await authFetch<void>("/auth/logout", {
       method: "POST",
-    }).catch(() => undefined);
+    });
     clearStoredSession();
   },
 

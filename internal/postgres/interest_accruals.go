@@ -35,6 +35,9 @@ func (r *InterestAccrualRepository) CreateWithTransaction(ctx context.Context, t
 		_ = tx.Rollback(ctx)
 	}()
 
+	if err := lockAccountForTransaction(ctx, tx, transaction.AccountID); err != nil {
+		return fmt.Errorf("lock interest transaction account: %w", err)
+	}
 	if err := insertTransaction(ctx, tx, transaction); err != nil {
 		return fmt.Errorf("create interest transaction: %w", err)
 	}
@@ -56,6 +59,9 @@ func (r *InterestAccrualRepository) ReplaceRangeWithTransactions(ctx context.Con
 		_ = tx.Rollback(ctx)
 	}()
 
+	if err := lockAccountForTransaction(ctx, tx, accountID); err != nil {
+		return 0, fmt.Errorf("lock replace interest account: %w", err)
+	}
 	rows, err := tx.Query(ctx, `
 		DELETE FROM interest_accruals
 		WHERE account_id = $1 AND rule_id = $2 AND accrual_date BETWEEN $3 AND $4
@@ -104,6 +110,19 @@ func (r *InterestAccrualRepository) ReplaceRangeWithTransactions(ctx context.Con
 	}
 
 	return int64(len(transactionIDs)), nil
+}
+
+func lockAccountForTransaction(ctx context.Context, execer queryExecer, accountID string) error {
+	var lockedID string
+	if err := execer.QueryRow(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE id = $1
+		FOR UPDATE
+	`, accountID).Scan(&lockedID); err != nil {
+		return mapNotFound(err)
+	}
+	return nil
 }
 
 func (r *InterestAccrualRepository) GetByAccountDateRule(ctx context.Context, accountID, accrualDate, ruleID string) (*models.InterestAccrual, error) {

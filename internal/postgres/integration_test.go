@@ -690,6 +690,111 @@ func TestTransactionCreationWaitsForCurrencyUpdateAndInserts(t *testing.T) {
 	}
 }
 
+func TestInterestAccrualCreateWithTransactionWaitsForCurrencyUpdate(t *testing.T) {
+	store := newTestStore(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	userID, account, rule := seedInterestLockTestData(ctx, t, store, "accrue-lock@example.com", "accrue-lock")
+
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin currency update: %v", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	var lockedID string
+	if err := tx.QueryRow(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE id = $1 AND owner_user_id = $2
+		FOR UPDATE
+	`, account.ID, userID).Scan(&lockedID); err != nil {
+		t.Fatalf("lock account: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE accounts SET currency = $2, updated_at = $3 WHERE id = $1`, account.ID, "USD", now.Add(time.Minute)); err != nil {
+		t.Fatalf("update locked account: %v", err)
+	}
+
+	interestTx, accrual := interestLockTransactionAndAccrual(account.ID, rule.ID, now)
+	errs := make(chan error, 1)
+	go func() {
+		errs <- store.InterestAccruals().CreateWithTransaction(ctx, interestTx, accrual)
+	}()
+
+	assertStillWaiting(t, errs, "interest accrual transaction creation")
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit currency update: %v", err)
+	}
+	if err := <-errs; err != nil {
+		t.Fatalf("create interest accrual after currency update: %v", err)
+	}
+
+	gotAccount, err := store.Accounts().GetByIDForUser(ctx, account.ID, userID)
+	if err != nil {
+		t.Fatalf("get account: %v", err)
+	}
+	if gotAccount.Currency != "USD" {
+		t.Fatalf("currency = %s, want USD", gotAccount.Currency)
+	}
+	if _, err := store.Transactions().GetByIDForUser(ctx, interestTx.ID, userID); err != nil {
+		t.Fatalf("get interest transaction: %v", err)
+	}
+}
+
+func TestInterestAccrualReplaceRangeWaitsForCurrencyUpdate(t *testing.T) {
+	store := newTestStore(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	userID, account, rule := seedInterestLockTestData(ctx, t, store, "replace-lock@example.com", "replace-lock")
+
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin currency update: %v", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	var lockedID string
+	if err := tx.QueryRow(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE id = $1 AND owner_user_id = $2
+		FOR UPDATE
+	`, account.ID, userID).Scan(&lockedID); err != nil {
+		t.Fatalf("lock account: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE accounts SET currency = $2, updated_at = $3 WHERE id = $1`, account.ID, "USD", now.Add(time.Minute)); err != nil {
+		t.Fatalf("update locked account: %v", err)
+	}
+
+	interestTx, accrual := interestLockTransactionAndAccrual(account.ID, rule.ID, now)
+	errs := make(chan error, 1)
+	go func() {
+		_, err := store.InterestAccruals().ReplaceRangeWithTransactions(ctx, account.ID, rule.ID, pgDateOnly(now), pgDateOnly(now), []models.Transaction{*interestTx}, []models.InterestAccrual{*accrual})
+		errs <- err
+	}()
+
+	assertStillWaiting(t, errs, "replace interest accrual transactions")
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit currency update: %v", err)
+	}
+	if err := <-errs; err != nil {
+		t.Fatalf("replace interest accruals after currency update: %v", err)
+	}
+
+	gotAccount, err := store.Accounts().GetByIDForUser(ctx, account.ID, userID)
+	if err != nil {
+		t.Fatalf("get account: %v", err)
+	}
+	if gotAccount.Currency != "USD" {
+		t.Fatalf("currency = %s, want USD", gotAccount.Currency)
+	}
+	if _, err := store.Transactions().GetByIDForUser(ctx, interestTx.ID, userID); err != nil {
+		t.Fatalf("get replaced interest transaction: %v", err)
+	}
+}
+
 func pgDateOnly(date time.Time) time.Time {
 	return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
 }
@@ -913,6 +1018,60 @@ func transferTestAccount(t *testing.T, store *Store, userID, name string) *model
 		t.Fatalf("create account %s: %v", name, err)
 	}
 	return account
+}
+
+func seedInterestLockTestData(ctx context.Context, t *testing.T, store *Store, email, accountName string) (string, *models.Account, *models.InterestRule) {
+	t.Helper()
+	now := time.Now().UTC()
+	userID := uuid.NewString()
+	if err := store.Users().Create(ctx, &models.User{
+		ID:              userID,
+		Email:           email,
+		PasswordHash:    "hash",
+		PrimaryCurrency: "RUB",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	account := &models.Account{
+		ID:          uuid.NewString(),
+		OwnerUserID: &userID,
+		Name:        accountName,
+		Type:        models.AccountTypeSavings,
+		Currency:    "RUB",
+		IsActive:    true,
+		OpenedAt:    now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := store.Accounts().Create(ctx, account); err != nil {
+		t.Fatalf("create account %s: %v", accountName, err)
+	}
+	rule := seedInterestRule(ctx, t, store, account.ID)
+	return userID, account, rule
+}
+
+func interestLockTransactionAndAccrual(accountID, ruleID string, now time.Time) (*models.Transaction, *models.InterestAccrual) {
+	txID := uuid.NewString()
+	return &models.Transaction{
+			ID:          txID,
+			AccountID:   accountID,
+			Type:        models.TransactionTypeInterestIncome,
+			AmountMinor: 100,
+			OccurredAt:  now,
+			CreatedAt:   now,
+		}, &models.InterestAccrual{
+			ID:            uuid.NewString(),
+			AccountID:     accountID,
+			RuleID:        ruleID,
+			TransactionID: txID,
+			AccrualDate:   pgDateOnly(now),
+			AmountMinor:   100,
+			BalanceMinor:  10_000,
+			AnnualRateBps: 1_200,
+			CreatedAt:     now,
+		}
 }
 
 func assertStillWaiting(t *testing.T, errs <-chan error, operation string) {
