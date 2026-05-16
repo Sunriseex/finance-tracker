@@ -162,12 +162,76 @@ func TestAuthRefreshAcceptsRefreshCookieFallback(t *testing.T) {
 	if err := json.Unmarshal(refreshRec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode refresh response: %v", err)
 	}
-	if response.RefreshToken == "" {
-		t.Fatal("refresh response must keep JSON refresh token compatibility")
+	if response.AccessToken == "" {
+		t.Fatal("refresh response must include access token")
 	}
 	cookie := requireRefreshCookie(t, refreshRec.Result().Cookies())
-	if cookie.Value == "" || cookie.Value != response.RefreshToken {
+	if cookie.Value == "" {
 		t.Fatal("refresh cookie must contain the rotated refresh token")
+	}
+}
+
+func TestAuthResponsesDoNotExposeRefreshTokenJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		statusCode int
+		request    func(cookie *http.Cookie) *http.Request
+	}{
+		{
+			name:       "setup",
+			statusCode: http.StatusCreated,
+			request: func(_ *http.Cookie) *http.Request {
+				return httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/setup", strings.NewReader(`{
+					"email":"user@example.com",
+					"password":"correct horse battery staple",
+					"primary_currency":"RUB"
+				}`))
+			},
+		},
+		{
+			name:       "refresh",
+			statusCode: http.StatusOK,
+			request: func(cookie *http.Cookie) *http.Request {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/refresh", http.NoBody)
+				req.AddCookie(cookie)
+				return req
+			},
+		},
+	} {
+		router := newTestAuthRouter(t)
+		rec := httptest.NewRecorder()
+		var req *http.Request
+		if tc.name == "refresh" {
+			setupRec := httptest.NewRecorder()
+			setupReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/setup", strings.NewReader(`{
+				"email":"refresh@example.com",
+				"password":"correct horse battery staple",
+				"primary_currency":"RUB"
+			}`))
+			router.ServeHTTP(setupRec, setupReq)
+			if setupRec.Code != http.StatusCreated {
+				t.Fatalf("setup for refresh status = %d, want %d: %s", setupRec.Code, http.StatusCreated, setupRec.Body.String())
+			}
+			req = tc.request(requireRefreshCookie(t, setupRec.Result().Cookies()))
+		} else {
+			req = tc.request(nil)
+		}
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != tc.statusCode {
+			t.Fatalf("%s status = %d, want %d: %s", tc.name, rec.Code, tc.statusCode, rec.Body.String())
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode %s response: %v", tc.name, err)
+		}
+		if _, ok := payload["refresh_token"]; ok {
+			t.Fatalf("%s response exposes refresh_token", tc.name)
+		}
+		if _, ok := payload["refresh_expires_at"]; ok {
+			t.Fatalf("%s response exposes refresh_expires_at", tc.name)
+		}
 	}
 }
 
@@ -213,15 +277,16 @@ func TestAuthRefreshReuseRevokesSessionFamily(t *testing.T) {
 	if setupRec.Code != http.StatusCreated {
 		t.Fatalf("setup status = %d, want %d: %s", setupRec.Code, http.StatusCreated, setupRec.Body.String())
 	}
-	setupSession := decodeAuthResponse(t, setupRec)
+	setupCookie := requireRefreshCookie(t, setupRec.Result().Cookies())
 
 	refreshRec := httptest.NewRecorder()
 	refreshReq := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
 		"/auth/refresh",
-		strings.NewReader(`{"refresh_token":"`+setupSession.RefreshToken+`"}`),
+		http.NoBody,
 	)
+	refreshReq.AddCookie(setupCookie)
 	router.ServeHTTP(refreshRec, refreshReq)
 	if refreshRec.Code != http.StatusOK {
 		t.Fatalf("refresh status = %d, want %d: %s", refreshRec.Code, http.StatusOK, refreshRec.Body.String())
@@ -233,8 +298,9 @@ func TestAuthRefreshReuseRevokesSessionFamily(t *testing.T) {
 		t.Context(),
 		http.MethodPost,
 		"/auth/refresh",
-		strings.NewReader(`{"refresh_token":"`+setupSession.RefreshToken+`"}`),
+		http.NoBody,
 	)
+	reuseReq.AddCookie(setupCookie)
 	router.ServeHTTP(reuseRec, reuseReq)
 	if reuseRec.Code != http.StatusBadRequest {
 		t.Fatalf("reuse status = %d, want %d: %s", reuseRec.Code, http.StatusBadRequest, reuseRec.Body.String())

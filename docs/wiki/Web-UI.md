@@ -24,6 +24,6 @@ The Vite dev server proxies API requests. Check `web/` config for the current pr
 
 ## Auth Client Behavior
 
-The Web UI uses access tokens for API mutations and reads. Refresh/logout can use the refresh token JSON body and the secure refresh cookie fallback.
+The Web UI uses access tokens for API mutations and reads. Refresh/logout use the secure refresh cookie and never store refresh tokens in browser storage.
 
 See [Auth Security Model](Auth-Security-Model).

@@ -14,10 +14,10 @@ import type {
 } from "./types";
 
 const tokenKey = "capitalflow_api_token";
-const refreshTokenKey = "capitalflow_refresh_token";
 const apiBaseKey = "capitalflow_api_base";
 const legacyTokenKey = "finance_tracker_api_token";
 const legacyApiBaseKey = "finance_tracker_api_base";
+const legacyRefreshTokenKey = "capitalflow_refresh_token";
 const legacyDefaultApiBase = "http://localhost:8080/api";
 const defaultApiBase = "/api/v1";
 
@@ -29,17 +29,9 @@ export function setStoredToken(token: string) {
   localStorage.setItem(tokenKey, token.trim());
 }
 
-export function getStoredRefreshToken() {
-  return localStorage.getItem(refreshTokenKey) ?? "";
-}
-
-export function setStoredRefreshToken(token: string) {
-  localStorage.setItem(refreshTokenKey, token.trim());
-}
-
 export function clearStoredSession() {
   localStorage.removeItem(tokenKey);
-  localStorage.removeItem(refreshTokenKey);
+  localStorage.removeItem(legacyRefreshTokenKey);
   localStorage.removeItem(legacyTokenKey);
 }
 
@@ -193,13 +185,11 @@ type AuthResponse = {
   user: { id: string; email: string; primary_currency: string };
   access_token: string;
   access_expires_at: string;
-  refresh_token: string;
-  refresh_expires_at: string;
 };
 
 function storeSession(session: AuthResponse) {
   setStoredToken(session.access_token);
-  setStoredRefreshToken(session.refresh_token);
+  localStorage.removeItem(legacyRefreshTokenKey);
   return session;
 }
 
@@ -208,11 +198,8 @@ async function refreshSession() {
     return refreshSessionPromise;
   }
 
-  const refreshToken = getStoredRefreshToken();
-
   refreshSessionPromise = authFetch<AuthResponse>("/auth/refresh", {
     method: "POST",
-    body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : undefined,
   })
     .then(storeSession)
     .catch((err) => {
@@ -241,10 +228,8 @@ export const api = {
     storeSession(await authFetch<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify(input) })),
 
   logout: async () => {
-    const refreshToken = getStoredRefreshToken();
     await authFetch<void>("/auth/logout", {
       method: "POST",
-      body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : undefined,
     }).catch(() => undefined);
     clearStoredSession();
   },

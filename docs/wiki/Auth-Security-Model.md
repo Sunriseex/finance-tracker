@@ -18,7 +18,7 @@ CapitalFlow auth uses explicit tokens, server-side refresh sessions, audit loggi
 
 ## Cookie Model
 
-The server sets `__Secure-capitalflow_refresh` for compatibility with browser clients.
+The server sets `__Secure-capitalflow_refresh` for browser refresh-token rotation.
 
 Cookie attributes:
 
@@ -27,13 +27,13 @@ Cookie attributes:
 * `SameSite=Strict`
 * `Path=/auth`
 
-Refresh and logout still accept an explicit JSON refresh token. The cookie is a fallback, not the only transport.
+Refresh and logout use this cookie only. Auth JSON responses do not include refresh tokens.
 
 ## CSRF Model
 
 API mutations use `Authorization: Bearer <access_token>` and do not rely on ambient cookie authentication.
 
-Refresh/logout can use the secure refresh cookie fallback. Because that cookie is scoped to `/auth` and uses `SameSite=Strict`, cross-site browser submission risk is reduced. If refresh becomes cookie-only later, add an explicit CSRF token check before treating the cookie as sufficient.
+Refresh/logout use the secure refresh cookie. Because that cookie is scoped to `/auth` and uses `SameSite=Strict`, cross-site browser submission risk is reduced.
 
 ## Password Policy
 

@@ -17,7 +17,7 @@ Implement:
 * refresh token rotation
 * refresh token reuse detection
 * full session family revocation on reuse
-* secure refresh cookie fallback
+* secure refresh cookie transport
 * `zxcvbn` password policy
 * progressive login lockout
 * password change with logout from all sessions
@@ -27,9 +27,7 @@ Implement:
 
 ## CSRF Decision
 
-API mutations use Bearer access tokens. Refresh/logout support explicit JSON refresh tokens and a secure cookie fallback. The current model does not treat cookies as the only auth signal.
-
-If refresh becomes cookie-only later, add explicit CSRF token checks.
+API mutations use Bearer access tokens. Refresh/logout use a secure cookie scoped to `/auth`.
 
 ## Consequences
 

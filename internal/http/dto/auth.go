@@ -8,10 +8,6 @@ type AuthRequest struct {
 	PrimaryCurrency string `json:"primary_currency"`
 }
 
-type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
-}
-
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"current_password"`
 	NewPassword     string `json:"new_password"`
@@ -37,11 +33,9 @@ type AuthUser struct {
 }
 
 type AuthResponse struct {
-	User             AuthUser  `json:"user"`
-	AccessToken      string    `json:"access_token"`
-	AccessExpiresAt  time.Time `json:"access_expires_at"`
-	RefreshToken     string    `json:"refresh_token"`
-	RefreshExpiresAt time.Time `json:"refresh_expires_at"`
+	User            AuthUser  `json:"user"`
+	AccessToken     string    `json:"access_token"`
+	AccessExpiresAt time.Time `json:"access_expires_at"`
 }
 
 type AuthStatusResponse struct {

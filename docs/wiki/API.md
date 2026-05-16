@@ -17,7 +17,7 @@ The API contract is maintained in `docs/openapi.yaml`.
 
 Most `/api/v1/*` routes require an `Authorization: Bearer <access_token>` header.
 
-Refresh and logout accept an explicit JSON refresh token and can also use the secure refresh cookie fallback.
+Refresh and logout use the secure refresh cookie. Auth JSON responses do not include refresh tokens.
 
 See [Auth Security Model](Auth-Security-Model).
 

@@ -62,14 +62,7 @@ func (h *Handler) authLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) authRefresh(w http.ResponseWriter, r *http.Request) {
-	var req dto.RefreshRequest
-	if err := decodeOptionalJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body", nil)
-		return
-	}
-	req.RefreshToken = refreshTokenFromRequest(r, req.RefreshToken)
-
-	session, err := h.authService().Refresh(r.Context(), req.RefreshToken)
+	session, err := h.authService().Refresh(r.Context(), refreshTokenFromCookie(r))
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -79,16 +72,11 @@ func (h *Handler) authRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) authLogout(w http.ResponseWriter, r *http.Request) {
-	var req dto.RefreshRequest
-	if err := decodeOptionalJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body", nil)
-		return
-	}
-	req.RefreshToken = refreshTokenFromRequest(r, req.RefreshToken)
+	refreshToken := refreshTokenFromCookie(r)
 
 	clearRefreshCookie(w)
 
-	if err := h.authService().Logout(r.Context(), req.RefreshToken); err != nil {
+	if err := h.authService().Logout(r.Context(), refreshToken); err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -167,11 +155,9 @@ func (h *Handler) authService() *services.AuthService {
 
 func authResponse(session *services.AuthSession) dto.AuthResponse {
 	return dto.AuthResponse{
-		User:             authUser(session.User),
-		AccessToken:      session.AccessToken,
-		AccessExpiresAt:  session.AccessExpiresAt,
-		RefreshToken:     session.RefreshToken,
-		RefreshExpiresAt: session.RefreshExpiresAt,
+		User:            authUser(session.User),
+		AccessToken:     session.AccessToken,
+		AccessExpiresAt: session.AccessExpiresAt,
 	}
 }
 
@@ -228,10 +214,7 @@ func clearRefreshCookie(w http.ResponseWriter) {
 	})
 }
 
-func refreshTokenFromRequest(r *http.Request, bodyToken string) string {
-	if bodyToken != "" {
-		return bodyToken
-	}
+func refreshTokenFromCookie(r *http.Request) string {
 	cookie, err := r.Cookie(refreshCookieName)
 	if err != nil {
 		return ""
