@@ -88,6 +88,25 @@ func seedInterestRule(ctx context.Context, t *testing.T, store *Store, accountID
 
 	return rule
 }
+
+func seedUser(ctx context.Context, t *testing.T, store *Store, email string) string {
+	t.Helper()
+
+	now := time.Now().UTC()
+	userID := uuid.NewString()
+	if err := store.Users().Create(ctx, &models.User{
+		ID:              userID,
+		Email:           email,
+		PasswordHash:    "hash",
+		PrimaryCurrency: "RUB",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	return userID
+}
+
 func TestPostgresRepositoriesIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -352,6 +371,136 @@ func TestUserRepositoryChangePasswordAndRevokeSessions(t *testing.T) {
 	}
 	if gotOtherToken.RevokedAt != nil {
 		t.Fatal("other user token was revoked")
+	}
+}
+
+func TestUserRepositoryRecordLoginFailureConcurrentLocksOnce(t *testing.T) {
+	store := newTestStore(t)
+	ctx := t.Context()
+	userID := seedUser(ctx, t, store, "login-failure-concurrent@example.com")
+
+	const workers = 8
+	const threshold = 3
+	delays := []time.Duration{time.Minute}
+	start := make(chan struct{})
+	results := make(chan int, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	now := time.Now().UTC()
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			attempts, _, err := store.Users().RecordLoginFailure(
+				ctx,
+				userID,
+				threshold,
+				delays,
+				now.Add(time.Duration(i)*time.Millisecond),
+			)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- attempts
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		t.Errorf("record login failure: %v", err)
+	}
+
+	seenAttempts := make(map[int]bool, workers)
+	for attempts := range results {
+		seenAttempts[attempts] = true
+	}
+	if len(seenAttempts) != workers {
+		t.Fatalf("unique attempt results = %d, want %d: %v", len(seenAttempts), workers, seenAttempts)
+	}
+	for attempt := 1; attempt <= workers; attempt++ {
+		if !seenAttempts[attempt] {
+			t.Fatalf("missing attempt count %d in %v", attempt, seenAttempts)
+		}
+	}
+
+	user, err := store.Users().GetByID(ctx, userID)
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	if user.FailedLoginAttempts != workers {
+		t.Fatalf("failed_login_attempts = %d, want %d", user.FailedLoginAttempts, workers)
+	}
+	if user.LockedUntil == nil {
+		t.Fatal("locked_until is nil")
+	}
+}
+
+func TestRefreshTokenRepositoryConcurrentRevokeOnlyOneSucceeds(t *testing.T) {
+	store := newTestStore(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	userID := seedUser(ctx, t, store, "refresh-revoke-concurrent@example.com")
+	token := &models.RefreshToken{
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		TokenHash: "concurrent-revoke-token",
+		ExpiresAt: now.Add(time.Hour),
+		CreatedAt: now,
+	}
+	if err := store.RefreshTokens().Create(ctx, token); err != nil {
+		t.Fatalf("create refresh token: %v", err)
+	}
+
+	const workers = 8
+	start := make(chan struct{})
+	results := make(chan error, workers)
+	var wg sync.WaitGroup
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			results <- store.RefreshTokens().Revoke(ctx, token.ID, now.Add(time.Duration(i)*time.Millisecond), "logout")
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	notFound := 0
+	for err := range results {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, repository.ErrNotFound):
+			notFound++
+		default:
+			t.Fatalf("unexpected revoke err: %v", err)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful revokes = %d, want 1", successes)
+	}
+	if notFound != workers-1 {
+		t.Fatalf("not found revokes = %d, want %d", notFound, workers-1)
+	}
+
+	got, err := store.RefreshTokens().GetByID(ctx, token.ID)
+	if err != nil {
+		t.Fatalf("get refresh token: %v", err)
+	}
+	if got.RevokedAt == nil || got.RevokedReason == nil || *got.RevokedReason != "logout" {
+		t.Fatalf("revoke state = %+v, want revoked logout", got)
 	}
 }
 
