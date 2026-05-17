@@ -644,6 +644,283 @@ internal/domain
 
 ---
 
+# v0.5.3 — Passkey Login / WebAuthn
+
+## Цель
+
+Добавить вход по passkey как более безопасный и удобный способ авторизации поверх уже существующей auth-системы.
+
+На этом этапе passkey не должен ломать текущий password login. Сначала passkey добавляется как дополнительный способ входа для существующего пользователя, а password login остается fallback-механизмом до появления полноценного recovery-flow.
+
+## Security Requirements
+
+* [ ] Использовать WebAuthn / passkeys через `PublicKeyCredential`.
+* [ ] Не хранить приватные ключи пользователя на сервере.
+* [ ] Хранить только публичный ключ credential, credential ID, user ID, sign counter и технические metadata.
+* [ ] Привязать passkey к конкретному `rpID` и разрешенным origins.
+* [ ] Генерировать challenge только на backend.
+* [ ] Challenge должен быть одноразовым и иметь короткий TTL.
+* [ ] Нельзя повторно использовать старый challenge.
+* [ ] Нельзя зарегистрировать passkey без активной authenticated session.
+* [ ] Для добавления первого passkey к существующему аккаунту требовать повторное подтверждение пароля или свежую сессию.
+* [ ] Поддержать несколько passkeys на одного пользователя.
+* [ ] Добавить удаление passkey из Settings.
+* [ ] Добавить audit log для passkey-событий:
+
+  * [ ] registration started
+  * [ ] registration completed
+  * [ ] registration failed
+  * [ ] login completed
+  * [ ] login failed
+  * [ ] credential removed
+* [ ] Добавить rate limit на passkey registration/login endpoints.
+* [ ] В production требовать HTTPS; `localhost` разрешить только для dev.
+* [ ] Не раскрывать в UI чувствительные причины ошибки WebAuthn.
+
+## Backend
+
+* [ ] Добавить WebAuthn config:
+
+```go
+type WebAuthnConfig struct {
+    RPID           string
+    RPName         string
+    AllowedOrigins []string
+}
+```
+
+* [ ] Добавить таблицу `passkey_credentials`.
+
+Пример полей:
+
+```sql
+id
+user_id
+credential_id
+public_key
+sign_count
+aaguid
+name
+transports
+backup_eligible
+backup_state
+created_at
+last_used_at
+revoked_at
+```
+
+* [ ] Добавить таблицу или storage для одноразовых WebAuthn challenges.
+* [ ] Добавить repository для passkey credentials.
+* [ ] Добавить service для registration flow.
+* [ ] Добавить service для authentication flow.
+* [ ] Интегрировать успешный passkey login в текущий access/refresh token flow.
+* [ ] После passkey login создавать обычную refresh session.
+* [ ] При logout/revoke sessions поведение должно остаться единым для password и passkey login.
+
+## API Endpoints
+
+### Passkey Registration
+
+* [ ] `POST /auth/passkeys/register/options`
+* [ ] `POST /auth/passkeys/register/verify`
+
+### Passkey Login
+
+* [ ] `POST /auth/passkeys/login/options`
+* [ ] `POST /auth/passkeys/login/verify`
+
+### Passkey Management
+
+* [ ] `GET /auth/passkeys`
+* [ ] `PATCH /auth/passkeys/{id}` для переименования passkey.
+* [ ] `DELETE /auth/passkeys/{id}` для удаления passkey.
+
+## Frontend
+
+* [ ] Добавить кнопку `Sign in with passkey` на login screen.
+* [ ] Добавить блок `Settings -> Security -> Passkeys`.
+* [ ] Добавить кнопку `Add passkey`.
+* [ ] Показать список passkeys пользователя.
+* [ ] Добавить rename passkey.
+* [ ] Добавить delete passkey.
+* [ ] Добавить fallback-сообщение, если браузер не поддерживает passkeys.
+* [ ] Добавить понятные, но безопасные ошибки:
+
+  * [ ] passkey cancelled
+  * [ ] browser not supported
+  * [ ] credential not found
+  * [ ] login failed
+
+## Tests
+
+* [ ] Unit tests для challenge lifecycle.
+* [ ] Unit tests для credential storage.
+* [ ] Handler tests для registration options.
+* [ ] Handler tests для registration verify.
+* [ ] Handler tests для login options.
+* [ ] Handler tests для login verify.
+* [ ] Security tests:
+
+  * [ ] replayed challenge rejected
+  * [ ] expired challenge rejected
+  * [ ] wrong origin rejected
+  * [ ] wrong rpID rejected
+  * [ ] revoked credential rejected
+  * [ ] credential from another user rejected
+
+## Acceptance Criteria
+
+* [ ] Пользователь может добавить passkey в Settings.
+* [ ] Пользователь может войти через passkey без ввода пароля.
+* [ ] Password login остается рабочим fallback-способом входа.
+* [ ] Один пользователь может иметь несколько passkeys.
+* [ ] Пользователь может удалить passkey.
+* [ ] Успешный passkey login создает обычную refresh session.
+* [ ] Passkey-события попадают в audit log.
+* [ ] Повторный, просроченный или чужой challenge отклоняется.
+* [ ] Passkey flow покрыт unit, handler и security tests.
+
+---
+
+# v0.5.4 — E2E Testing Baseline
+
+## Цель
+
+Добавить end-to-end тестирование, которое проверяет реальные пользовательские сценарии через браузер: от открытия WebUI до изменения данных через backend и PostgreSQL.
+
+E2E не заменяет unit, handler и integration tests. Его задача — проверять, что основные product flows работают вместе: frontend, API, auth, database и routing.
+
+## Стек
+
+* [ ] Playwright.
+* [ ] TypeScript.
+* [ ] Chromium как обязательный browser target.
+* [ ] Firefox/WebKit как optional browser targets после стабилизации.
+* [ ] Docker Compose для тестовой PostgreSQL.
+* [ ] Отдельная test database.
+
+## Test Environment
+
+* [ ] Добавить `docker-compose.e2e.yml`.
+* [ ] Поднимать PostgreSQL для E2E отдельно от dev DB.
+* [ ] Применять миграции перед запуском E2E.
+* [ ] Очищать test DB перед каждым test suite или worker.
+* [ ] Добавить seed для базовых категорий.
+* [ ] Запускать backend в `e2e`/`test` mode.
+* [ ] Запускать WebUI с `VITE_API_URL`, указывающим на test backend.
+* [ ] Не использовать production secrets.
+* [ ] Добавить стабильные test users через setup helper.
+
+## Scripts
+
+```json
+{
+  "test:e2e": "playwright test",
+  "test:e2e:ui": "playwright test --ui",
+  "test:e2e:headed": "playwright test --headed",
+  "test:e2e:report": "playwright show-report"
+}
+```
+
+## CI
+
+* [ ] Добавить отдельный CI job `e2e`.
+* [ ] Запускать backend tests, frontend tests и E2E отдельными checks.
+* [ ] Сохранять Playwright report как CI artifact.
+* [ ] Сохранять trace/screenshot/video только при падении теста.
+* [ ] E2E job должен запускаться после успешного backend/frontend build.
+* [ ] Добавить timeout для E2E job.
+* [ ] Не блокировать локальную разработку слишком медленными test suites.
+
+## Test Scenarios
+
+### Auth
+
+* [ ] Первый setup пользователя.
+* [ ] Login по email/password.
+* [ ] Logout.
+* [ ] Session bootstrap после reload страницы.
+* [ ] Access token refresh flow.
+* [ ] Redirect на login screen без активной сессии.
+* [ ] Неверный пароль показывает безопасную ошибку.
+
+### Passkey
+
+* [ ] Добавление passkey из Settings.
+* [ ] Login через passkey.
+* [ ] Удаление passkey.
+* [ ] Fallback на password login.
+* [ ] Smoke-test passkey flow через virtual authenticator.
+
+### Accounts
+
+* [ ] Создание счета.
+* [ ] Просмотр списка счетов.
+* [ ] Открытие account details.
+* [ ] Архивация счета.
+* [ ] Проверка empty state без счетов.
+
+### Transactions
+
+* [ ] Создание income transaction.
+* [ ] Создание expense transaction.
+* [ ] Создание adjustment transaction.
+* [ ] Удаление transaction.
+* [ ] Фильтр по счету.
+* [ ] Фильтр по категории.
+* [ ] Фильтр по дате.
+* [ ] Поиск по описанию.
+
+### Transfers
+
+* [ ] Перевод между двумя счетами.
+* [ ] Проверка списания с исходного счета.
+* [ ] Проверка зачисления на целевой счет.
+* [ ] Проверка истории операций после transfer.
+* [ ] Ошибка при переводе на тот же счет.
+
+### Interest / Deposits
+
+* [ ] Создание накопительного счета со ставкой.
+* [ ] Ручное начисление процентов.
+* [ ] Повторное начисление за тот же день не создает дубль.
+* [ ] Forecast отображается в UI.
+
+### Dashboard
+
+* [ ] Net worth обновляется после создания счета.
+* [ ] Доходы/расходы за месяц обновляются после операций.
+* [ ] Последние операции отображаются после создания transaction.
+* [ ] Быстрые действия открывают нужные формы.
+
+### UI Stability
+
+* [ ] Переключение light/dark theme.
+* [ ] Theme сохраняется после reload.
+* [ ] Основные страницы не имеют critical console errors.
+* [ ] Mobile viewport smoke test для dashboard и transactions.
+
+## Test Data Rules
+
+* [ ] Каждый тест создает свои данные или использует изолированный seed.
+* [ ] Тесты не зависят от порядка выполнения.
+* [ ] Тесты можно запускать параллельно после стабилизации isolation.
+* [ ] Деньги в тестах проверяются через точные значения minor units.
+* [ ] Даты фиксируются через controlled clock/test helpers там, где это возможно.
+
+## Acceptance Criteria
+
+* [ ] `npm run test:e2e` запускает E2E локально.
+* [ ] E2E поднимает или использует отдельную test database.
+* [ ] CI имеет отдельный `e2e` check.
+* [ ] Покрыты P0 flows: setup, login, account, transaction, transfer, dashboard.
+* [ ] Passkey flow покрыт smoke E2E через virtual authenticator.
+* [ ] При падении тестов сохраняется Playwright report.
+* [ ] E2E тесты не используют production secrets и production database.
+* [ ] Добавлена документация `docs/testing/e2e.md`.
+
+---
+
 # v0.6 — Deposit & Capitalization Engine
 
 ## Цель
@@ -1235,6 +1512,8 @@ Scope:
 * [ ] Капитализация.
 * [ ] Отчеты.
 * [ ] Backup/restore.
+* [ ] Passkey login как optional secure login method.
+* [ ] E2E тесты для critical user flows.
 * [ ] NixOS-friendly запуск.
 
 ## После v1.0 / v1.x
@@ -1259,6 +1538,8 @@ Scope:
 * [ ] WebUI.
 * [ ] Миграции.
 * [ ] Тестирование.
+* [ ] E2E testing через браузер.
+* [ ] Passkey/WebAuthn security flow.
 * [ ] Docker/NixOS окружение.
 
 ## CI/CD до v1.0
@@ -1270,6 +1551,8 @@ Scope:
   * [x] `npm run build`
 * [x] Backend CI и frontend CI должны быть отдельными checks.
 * [x] Добавить OpenAPI validation check, когда spec станет обязательной.
+* [ ] Добавить Playwright E2E CI job.
+* [ ] Сохранять Playwright report как CI artifact.
 
 ---
 
