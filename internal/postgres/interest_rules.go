@@ -34,7 +34,11 @@ func (r *InterestRuleRepository) GetByID(ctx context.Context, id string) (*model
 }
 
 func (r *InterestRuleRepository) ListByAccount(ctx context.Context, accountID string) ([]models.InterestRule, error) {
-	rows, err := r.pool.Query(ctx, selectInterestRuleSQL+` WHERE account_id = $1 ORDER BY start_date, created_at`, accountID)
+	return listInterestRules(ctx, r.pool, selectInterestRuleSQL+` WHERE account_id = $1 ORDER BY start_date, created_at`, accountID)
+}
+
+func listInterestRules(ctx context.Context, db queryer, query string, args ...any) ([]models.InterestRule, error) {
+	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list interest rules: %w", err)
 	}

@@ -15,3 +15,8 @@ type queryExecer interface {
 	sqlExecer
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
+
+type queryer interface {
+	queryExecer
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}

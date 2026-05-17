@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -792,6 +793,154 @@ func TestInterestAccrualReplaceRangeWaitsForCurrencyUpdate(t *testing.T) {
 	}
 	if _, err := store.Transactions().GetByIDForUser(ctx, interestTx.ID, userID); err != nil {
 		t.Fatalf("get replaced interest transaction: %v", err)
+	}
+}
+
+func TestInterestCalculationSnapshotBlocksConcurrentTransactionInsert(t *testing.T) {
+	store := newTestStore(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	userID, account, _ := seedInterestLockTestData(ctx, t, store, "snapshot-lock@example.com", "snapshot-lock")
+
+	snapshotReady := make(chan struct{})
+	releaseSnapshot := make(chan struct{})
+	snapshotErrs := make(chan error, 1)
+	go func() {
+		snapshotErrs <- store.InterestAccruals().(repository.InterestAccrualTransactionalRepository).WithAccountInterestLock(ctx, account.ID, userID, func(ctx context.Context, snapshot repository.InterestCalculationRepository) error {
+			if _, err := snapshot.ListTransactionsByAccountForUser(ctx, account.ID, userID); err != nil {
+				return fmt.Errorf("list snapshot transactions: %w", err)
+			}
+			close(snapshotReady)
+			<-releaseSnapshot
+			return nil
+		})
+	}()
+
+	<-snapshotReady
+	created := &models.Transaction{
+		ID:          uuid.NewString(),
+		AccountID:   account.ID,
+		Type:        models.TransactionTypeIncome,
+		AmountMinor: 1_000,
+		OccurredAt:  now,
+		CreatedAt:   now,
+	}
+	insertErrs := make(chan error, 1)
+	go func() {
+		insertErrs <- store.Transactions().CreateForUser(ctx, userID, created)
+	}()
+
+	assertStillWaiting(t, insertErrs, "transaction insert during interest calculation snapshot")
+	close(releaseSnapshot)
+	if err := <-snapshotErrs; err != nil {
+		t.Fatalf("interest calculation snapshot: %v", err)
+	}
+	if err := <-insertErrs; err != nil {
+		t.Fatalf("create transaction after interest snapshot: %v", err)
+	}
+}
+
+func TestInterestCalculationOverlappingRecalculationsCannotInterleave(t *testing.T) {
+	store := newTestStore(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	userID, account, rule := seedInterestLockTestData(ctx, t, store, "overlap-lock@example.com", "overlap-lock")
+	txRepo := store.InterestAccruals().(repository.InterestAccrualTransactionalRepository)
+	accrualDate := pgDateOnly(now)
+
+	firstReady := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstErrs := make(chan error, 1)
+	firstTx, firstAccrual := interestLockTransactionAndAccrual(account.ID, rule.ID, now)
+	go func() {
+		firstErrs <- txRepo.WithAccountInterestLock(ctx, account.ID, userID, func(ctx context.Context, snapshot repository.InterestCalculationRepository) error {
+			if _, err := snapshot.ReplaceInterestAccrualRangeWithTransactions(ctx, account.ID, rule.ID, accrualDate, accrualDate, []models.Transaction{*firstTx}, []models.InterestAccrual{*firstAccrual}); err != nil {
+				return fmt.Errorf("first replace interest accrual range: %w", err)
+			}
+			close(firstReady)
+			<-releaseFirst
+			return nil
+		})
+	}()
+
+	<-firstReady
+	secondTx, secondAccrual := interestLockTransactionAndAccrual(account.ID, rule.ID, now.Add(time.Minute))
+	secondAccrual.AccrualDate = accrualDate
+	secondErrs := make(chan error, 1)
+	go func() {
+		secondErrs <- txRepo.WithAccountInterestLock(ctx, account.ID, userID, func(ctx context.Context, snapshot repository.InterestCalculationRepository) error {
+			if _, err := snapshot.ReplaceInterestAccrualRangeWithTransactions(ctx, account.ID, rule.ID, accrualDate, accrualDate, []models.Transaction{*secondTx}, []models.InterestAccrual{*secondAccrual}); err != nil {
+				return fmt.Errorf("second replace interest accrual range: %w", err)
+			}
+			return nil
+		})
+	}()
+
+	assertStillWaiting(t, secondErrs, "overlapping interest recalculation")
+	close(releaseFirst)
+	if err := <-firstErrs; err != nil {
+		t.Fatalf("first recalculation: %v", err)
+	}
+	if err := <-secondErrs; err != nil {
+		t.Fatalf("second recalculation: %v", err)
+	}
+
+	accruals, err := store.InterestAccruals().ListByAccount(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("list final accruals: %v", err)
+	}
+	if len(accruals) != 1 {
+		t.Fatalf("accrual count = %d, want 1", len(accruals))
+	}
+	if accruals[0].TransactionID != secondTx.ID {
+		t.Fatalf("final accrual transaction = %s, want %s", accruals[0].TransactionID, secondTx.ID)
+	}
+	if _, err := store.Transactions().GetByIDForUser(ctx, firstTx.ID, userID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("first recalculation transaction err = %v, want ErrNotFound", err)
+	}
+	if _, err := store.Transactions().GetByIDForUser(ctx, secondTx.ID, userID); err != nil {
+		t.Fatalf("get second recalculation transaction: %v", err)
+	}
+}
+
+func TestInterestAccrualReplaceRangeWithTransactionsRollsBackOnInsertFailure(t *testing.T) {
+	store := newTestStore(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	userID, account, rule := seedInterestLockTestData(ctx, t, store, "replace-rollback@example.com", "replace-rollback")
+	originalTx, originalAccrual := interestLockTransactionAndAccrual(account.ID, rule.ID, now)
+	if err := store.InterestAccruals().CreateWithTransaction(ctx, originalTx, originalAccrual); err != nil {
+		t.Fatalf("seed original interest accrual: %v", err)
+	}
+
+	replacementTx, replacementAccrual := interestLockTransactionAndAccrual(uuid.NewString(), rule.ID, now.Add(time.Minute))
+	replacementAccrual.AccountID = account.ID
+	replacementAccrual.AccrualDate = originalAccrual.AccrualDate
+	_, err := store.InterestAccruals().ReplaceRangeWithTransactions(
+		ctx,
+		account.ID,
+		rule.ID,
+		originalAccrual.AccrualDate,
+		originalAccrual.AccrualDate,
+		[]models.Transaction{*replacementTx},
+		[]models.InterestAccrual{*replacementAccrual},
+	)
+	if err == nil {
+		t.Fatal("expected replacement insert failure")
+	}
+
+	gotAccrual, err := store.InterestAccruals().GetByAccountDateRule(ctx, account.ID, originalAccrual.AccrualDate.Format(time.DateOnly), rule.ID)
+	if err != nil {
+		t.Fatalf("get original accrual after rollback: %v", err)
+	}
+	if gotAccrual.ID != originalAccrual.ID {
+		t.Fatalf("accrual id after rollback = %s, want %s", gotAccrual.ID, originalAccrual.ID)
+	}
+	if _, err := store.Transactions().GetByIDForUser(ctx, originalTx.ID, userID); err != nil {
+		t.Fatalf("get original transaction after rollback: %v", err)
+	}
+	if _, err := store.Transactions().GetByIDForUser(ctx, replacementTx.ID, userID); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("replacement transaction err = %v, want ErrNotFound", err)
 	}
 }
 

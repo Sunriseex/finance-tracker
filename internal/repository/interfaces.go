@@ -64,6 +64,19 @@ type InterestAccrualRepository interface {
 	ListByAccount(ctx context.Context, accountID string) ([]models.InterestAccrual, error)
 }
 
+type InterestCalculationRepository interface {
+	GetInterestRuleByID(ctx context.Context, id string) (*models.InterestRule, error)
+	ListInterestRulesByAccount(ctx context.Context, accountID string) ([]models.InterestRule, error)
+	ListTransactionsByAccountForUser(ctx context.Context, accountID, userID string) ([]models.Transaction, error)
+	ListInterestAccrualsByAccount(ctx context.Context, accountID string) ([]models.InterestAccrual, error)
+	CreateInterestAccrualWithTransaction(ctx context.Context, transaction *models.Transaction, accrual *models.InterestAccrual) error
+	ReplaceInterestAccrualRangeWithTransactions(ctx context.Context, accountID, ruleID string, fromDate, toDate time.Time, transactions []models.Transaction, accruals []models.InterestAccrual) (int64, error)
+}
+
+type InterestAccrualTransactionalRepository interface {
+	WithAccountInterestLock(ctx context.Context, accountID, userID string, fn func(context.Context, InterestCalculationRepository) error) error
+}
+
 type UserRepository interface {
 	Create(ctx context.Context, user *models.User) error
 	Count(ctx context.Context) (int64, error)

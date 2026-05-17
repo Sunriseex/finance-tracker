@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sunriseex/capitalflow/internal/models"
@@ -50,6 +51,27 @@ func (r *InterestAccrualRepository) CreateWithTransaction(ctx context.Context, t
 	return nil
 }
 
+func (r *InterestAccrualRepository) WithAccountInterestLock(ctx context.Context, accountID, userID string, fn func(context.Context, repository.InterestCalculationRepository) error) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return fmt.Errorf("begin account interest transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if err := lockAccountForUser(ctx, tx, accountID, userID); err != nil {
+		return fmt.Errorf("lock account interest snapshot: %w", err)
+	}
+	if err := fn(ctx, interestCalculationTxRepository{tx: tx}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit account interest transaction: %w", err)
+	}
+	return nil
+}
+
 func (r *InterestAccrualRepository) ReplaceRangeWithTransactions(ctx context.Context, accountID, ruleID string, fromDate, toDate time.Time, transactions []models.Transaction, accruals []models.InterestAccrual) (int64, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -62,7 +84,20 @@ func (r *InterestAccrualRepository) ReplaceRangeWithTransactions(ctx context.Con
 	if err := lockAccountForTransaction(ctx, tx, accountID); err != nil {
 		return 0, fmt.Errorf("lock replace interest account: %w", err)
 	}
-	rows, err := tx.Query(ctx, `
+	deleted, err := replaceInterestAccrualRangeWithTransactions(ctx, tx, accountID, ruleID, fromDate, toDate, transactions, accruals)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit replace interest accruals: %w", err)
+	}
+
+	return deleted, nil
+}
+
+func replaceInterestAccrualRangeWithTransactions(ctx context.Context, db queryer, accountID, ruleID string, fromDate, toDate time.Time, transactions []models.Transaction, accruals []models.InterestAccrual) (int64, error) {
+	rows, err := db.Query(ctx, `
 		DELETE FROM interest_accruals
 		WHERE account_id = $1 AND rule_id = $2 AND accrual_date BETWEEN $3 AND $4
 		RETURNING transaction_id
@@ -87,7 +122,7 @@ func (r *InterestAccrualRepository) ReplaceRangeWithTransactions(ctx context.Con
 	rows.Close()
 
 	for _, transactionID := range transactionIDs {
-		if _, err := tx.Exec(ctx, `DELETE FROM transactions WHERE id = $1 AND type = $2`, transactionID, models.TransactionTypeInterestIncome); err != nil {
+		if _, err := db.Exec(ctx, `DELETE FROM transactions WHERE id = $1 AND type = $2`, transactionID, models.TransactionTypeInterestIncome); err != nil {
 			return 0, fmt.Errorf("delete interest transaction %s: %w", transactionID, err)
 		}
 	}
@@ -97,16 +132,12 @@ func (r *InterestAccrualRepository) ReplaceRangeWithTransactions(ctx context.Con
 	}
 
 	for i := range transactions {
-		if err := insertTransaction(ctx, tx, &transactions[i]); err != nil {
+		if err := insertTransaction(ctx, db, &transactions[i]); err != nil {
 			return 0, fmt.Errorf("create recalculated interest transaction: %w", err)
 		}
-		if err := insertInterestAccrual(ctx, tx, &accruals[i]); err != nil {
+		if err := insertInterestAccrual(ctx, db, &accruals[i]); err != nil {
 			return 0, fmt.Errorf("create recalculated interest accrual: %w", err)
 		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("commit replace interest accruals: %w", err)
 	}
 
 	return int64(len(transactionIDs)), nil
@@ -125,6 +156,19 @@ func lockAccountForTransaction(ctx context.Context, execer queryExecer, accountI
 	return nil
 }
 
+func lockAccountForUser(ctx context.Context, execer queryExecer, accountID, userID string) error {
+	var lockedID string
+	if err := execer.QueryRow(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE id = $1 AND owner_user_id = $2
+		FOR UPDATE
+	`, accountID, userID).Scan(&lockedID); err != nil {
+		return mapNotFound(err)
+	}
+	return nil
+}
+
 func (r *InterestAccrualRepository) GetByAccountDateRule(ctx context.Context, accountID, accrualDate, ruleID string) (*models.InterestAccrual, error) {
 	accrual, err := scanInterestAccrual(r.pool.QueryRow(ctx, selectInterestAccrualSQL+` WHERE account_id = $1 AND accrual_date = $2 AND rule_id = $3`, accountID, accrualDate, ruleID))
 	if err != nil {
@@ -134,7 +178,11 @@ func (r *InterestAccrualRepository) GetByAccountDateRule(ctx context.Context, ac
 }
 
 func (r *InterestAccrualRepository) ListByAccount(ctx context.Context, accountID string) ([]models.InterestAccrual, error) {
-	rows, err := r.pool.Query(ctx, selectInterestAccrualSQL+` WHERE account_id = $1 ORDER BY accrual_date`, accountID)
+	return listInterestAccruals(ctx, r.pool, selectInterestAccrualSQL+` WHERE account_id = $1 ORDER BY accrual_date`, accountID)
+}
+
+func listInterestAccruals(ctx context.Context, db queryer, query string, args ...any) ([]models.InterestAccrual, error) {
+	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list interest accruals: %w", err)
 	}
@@ -152,6 +200,50 @@ func (r *InterestAccrualRepository) ListByAccount(ctx context.Context, accountID
 		return nil, fmt.Errorf("list interest accruals rows: %w", err)
 	}
 	return accruals, nil
+}
+
+type interestCalculationTxRepository struct {
+	tx pgx.Tx
+}
+
+func (r interestCalculationTxRepository) GetInterestRuleByID(ctx context.Context, id string) (*models.InterestRule, error) {
+	rule, err := scanInterestRule(r.tx.QueryRow(ctx, selectInterestRuleSQL+` WHERE id = $1`, id))
+	if err != nil {
+		return nil, fmt.Errorf("get interest rule: %w", mapNotFound(err))
+	}
+	return rule, nil
+}
+
+func (r interestCalculationTxRepository) ListInterestRulesByAccount(ctx context.Context, accountID string) ([]models.InterestRule, error) {
+	return listInterestRules(ctx, r.tx, selectInterestRuleSQL+` WHERE account_id = $1 ORDER BY start_date, created_at`, accountID)
+}
+
+func (r interestCalculationTxRepository) ListTransactionsByAccountForUser(ctx context.Context, accountID, userID string) ([]models.Transaction, error) {
+	return listTransactions(ctx, r.tx, transactionSelectSQL+`
+		WHERE t.account_id = $1
+			AND EXISTS (
+				SELECT 1 FROM accounts a WHERE a.id = t.account_id AND a.owner_user_id = $2
+			)
+		ORDER BY occurred_at, created_at
+	`, accountID, userID)
+}
+
+func (r interestCalculationTxRepository) ListInterestAccrualsByAccount(ctx context.Context, accountID string) ([]models.InterestAccrual, error) {
+	return listInterestAccruals(ctx, r.tx, selectInterestAccrualSQL+` WHERE account_id = $1 ORDER BY accrual_date`, accountID)
+}
+
+func (r interestCalculationTxRepository) CreateInterestAccrualWithTransaction(ctx context.Context, transaction *models.Transaction, accrual *models.InterestAccrual) error {
+	if err := insertTransaction(ctx, r.tx, transaction); err != nil {
+		return fmt.Errorf("create interest transaction: %w", err)
+	}
+	if err := insertInterestAccrual(ctx, r.tx, accrual); err != nil {
+		return fmt.Errorf("create interest accrual: %w", err)
+	}
+	return nil
+}
+
+func (r interestCalculationTxRepository) ReplaceInterestAccrualRangeWithTransactions(ctx context.Context, accountID, ruleID string, fromDate, toDate time.Time, transactions []models.Transaction, accruals []models.InterestAccrual) (int64, error) {
+	return replaceInterestAccrualRangeWithTransactions(ctx, r.tx, accountID, ruleID, fromDate, toDate, transactions, accruals)
 }
 
 const selectInterestAccrualSQL = `

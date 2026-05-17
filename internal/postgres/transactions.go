@@ -153,11 +153,11 @@ func (r *TransactionRepository) GetByIDForUser(ctx context.Context, id, userID s
 }
 
 func (r *TransactionRepository) List(ctx context.Context) ([]models.Transaction, error) {
-	return r.list(ctx, transactionSelectSQL+` ORDER BY occurred_at, created_at`)
+	return listTransactions(ctx, r.pool, transactionSelectSQL+` ORDER BY occurred_at, created_at`)
 }
 
 func (r *TransactionRepository) ListByUser(ctx context.Context, userID string) ([]models.Transaction, error) {
-	return r.list(ctx, transactionSelectSQL+`
+	return listTransactions(ctx, r.pool, transactionSelectSQL+`
 		WHERE EXISTS (
 			SELECT 1 FROM accounts a WHERE a.id = t.account_id AND a.owner_user_id = $1
 		)
@@ -166,14 +166,14 @@ func (r *TransactionRepository) ListByUser(ctx context.Context, userID string) (
 }
 
 func (r *TransactionRepository) ListByAccount(ctx context.Context, accountID string) ([]models.Transaction, error) {
-	return r.list(ctx, transactionSelectSQL+`
+	return listTransactions(ctx, r.pool, transactionSelectSQL+`
 		WHERE t.account_id = $1
 		ORDER BY occurred_at, created_at
 	`, accountID)
 }
 
 func (r *TransactionRepository) ListByAccountForUser(ctx context.Context, accountID, userID string) ([]models.Transaction, error) {
-	return r.list(ctx, transactionSelectSQL+`
+	return listTransactions(ctx, r.pool, transactionSelectSQL+`
 		WHERE t.account_id = $1
 			AND EXISTS (
 				SELECT 1 FROM accounts a WHERE a.id = t.account_id AND a.owner_user_id = $2
@@ -230,8 +230,8 @@ func (r *TransactionRepository) DeleteForUser(ctx context.Context, id, userID st
 	return nil
 }
 
-func (r *TransactionRepository) list(ctx context.Context, query string, args ...any) ([]models.Transaction, error) {
-	rows, err := r.pool.Query(ctx, query, args...)
+func listTransactions(ctx context.Context, db queryer, query string, args ...any) ([]models.Transaction, error) {
+	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list transactions: %w", err)
 	}
