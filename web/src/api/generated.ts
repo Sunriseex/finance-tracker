@@ -124,6 +124,7 @@ export type Transaction = {
   "id": string;
   "account_id": string;
   "related_account_id"?: string | null;
+  "transfer_id"?: string | null;
   "type": TransactionType;
   "amount_minor": number;
   "category_id"?: string | null;
