@@ -708,6 +708,83 @@ func TestTransactionRepositoryCreateForUserScopesByOwner(t *testing.T) {
 	}
 }
 
+func TestTransactionRepositoryCreateForUserLocksRelatedAccountsWithoutDeadlock(t *testing.T) {
+	store := newTestStore(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+
+	userID := uuid.NewString()
+	if err := store.Users().Create(ctx, &models.User{
+		ID:              userID,
+		Email:           "transaction-related-locks@example.com",
+		PasswordHash:    "hash",
+		PrimaryCurrency: "RUB",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	accountA := transferTestAccount(t, store, userID, "related-lock-a")
+	accountB := transferTestAccount(t, store, userID, "related-lock-b")
+	txAB := &models.Transaction{
+		ID:               uuid.NewString(),
+		AccountID:        accountA.ID,
+		RelatedAccountID: &accountB.ID,
+		Type:             models.TransactionTypeAdjustment,
+		AmountMinor:      100,
+		OccurredAt:       now,
+		CreatedAt:        now,
+	}
+	txBA := &models.Transaction{
+		ID:               uuid.NewString(),
+		AccountID:        accountB.ID,
+		RelatedAccountID: &accountA.ID,
+		Type:             models.TransactionTypeAdjustment,
+		AmountMinor:      -100,
+		OccurredAt:       now,
+		CreatedAt:        now,
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	for _, transaction := range []*models.Transaction{txAB, txBA} {
+		go func(transaction *models.Transaction) {
+			<-start
+			errs <- store.Transactions().CreateForUser(runCtx, userID, transaction)
+		}(transaction)
+	}
+
+	close(start)
+	for range 2 {
+		select {
+		case err := <-errs:
+			if err != nil {
+				t.Fatalf("create mirrored related transaction: %v", err)
+			}
+		case <-runCtx.Done():
+			t.Fatalf("mirrored related transactions did not finish: %v", runCtx.Err())
+		}
+	}
+
+	gotAB, err := store.Transactions().GetByIDForUser(ctx, txAB.ID, userID)
+	if err != nil {
+		t.Fatalf("get A to B transaction: %v", err)
+	}
+	if gotAB.RelatedAccountID == nil || *gotAB.RelatedAccountID != accountB.ID {
+		t.Fatalf("A to B related account = %v, want %s", gotAB.RelatedAccountID, accountB.ID)
+	}
+	gotBA, err := store.Transactions().GetByIDForUser(ctx, txBA.ID, userID)
+	if err != nil {
+		t.Fatalf("get B to A transaction: %v", err)
+	}
+	if gotBA.RelatedAccountID == nil || *gotBA.RelatedAccountID != accountA.ID {
+		t.Fatalf("B to A related account = %v, want %s", gotBA.RelatedAccountID, accountA.ID)
+	}
+}
+
 func TestAccountCurrencyUpdateWaitsForTransactionCreationAndRejects(t *testing.T) {
 	store := newTestStore(t)
 	ctx := t.Context()

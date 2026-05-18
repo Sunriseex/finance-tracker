@@ -36,26 +36,12 @@ func (r *TransactionRepository) CreateForUser(ctx context.Context, userID string
 		_ = tx.Rollback(ctx)
 	}()
 
-	var accountID string
-	if err := tx.QueryRow(ctx, `
-		SELECT id
-		FROM accounts
-		WHERE id = $1 AND owner_user_id = $2
-		FOR UPDATE
-	`, transaction.AccountID, userID).Scan(&accountID); err != nil {
-		return fmt.Errorf("lock transaction account: %w", mapNotFound(err))
-	}
-
+	accountIDs := []string{transaction.AccountID}
 	if transaction.RelatedAccountID != nil {
-		var relatedAccountID string
-		if err := tx.QueryRow(ctx, `
-			SELECT id
-			FROM accounts
-			WHERE id = $1 AND owner_user_id = $2
-			FOR UPDATE
-		`, *transaction.RelatedAccountID, userID).Scan(&relatedAccountID); err != nil {
-			return fmt.Errorf("lock related transaction account: %w", mapNotFound(err))
-		}
+		accountIDs = append(accountIDs, *transaction.RelatedAccountID)
+	}
+	if err := lockTransactionAccountsForUser(ctx, tx, userID, accountIDs); err != nil {
+		return fmt.Errorf("lock transaction accounts: %w", err)
 	}
 
 	if err := insertTransaction(ctx, tx, transaction); err != nil {
@@ -63,6 +49,43 @@ func (r *TransactionRepository) CreateForUser(ctx context.Context, userID string
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit create user transaction: %w", err)
+	}
+	return nil
+}
+
+func lockTransactionAccountsForUser(ctx context.Context, db queryer, userID string, accountIDs []string) error {
+	accountIDs = slices.Clone(accountIDs)
+	slices.Sort(accountIDs)
+	accountIDs = slices.Compact(accountIDs)
+
+	if len(accountIDs) == 0 {
+		return repository.ErrNotFound
+	}
+	if len(accountIDs) == 1 {
+		return lockAccountForUser(ctx, db, accountIDs[0], userID)
+	}
+
+	rows, err := db.Query(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE id IN ($1, $2) AND owner_user_id = $3
+		ORDER BY id
+		FOR UPDATE
+	`, accountIDs[0], accountIDs[1], userID)
+	if err != nil {
+		return fmt.Errorf("query locked transaction accounts: %w", err)
+	}
+	defer rows.Close()
+
+	locked := 0
+	for rows.Next() {
+		locked++
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read locked transaction accounts: %w", err)
+	}
+	if locked != len(accountIDs) {
+		return repository.ErrNotFound
 	}
 	return nil
 }
