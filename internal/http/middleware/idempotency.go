@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -22,7 +21,7 @@ const idempotencyCompletionUnknownMessage = "The operation may have completed, b
 func RequireIdempotencyKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get(IdempotencyKeyHeader) == "" {
-			http.Error(w, "idempotency key is required", http.StatusPreconditionRequired)
+			writeJSONError(w, http.StatusPreconditionRequired, "idempotency_key_required", "Idempotency key is required", nil)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -65,7 +64,7 @@ func Idempotency(repo repository.IdempotencyRepository) func(http.Handler) http.
 
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				http.Error(w, "invalid request body", http.StatusBadRequest)
+				writeJSONError(w, http.StatusBadRequest, "validation_error", "Invalid request body", nil)
 				return
 			}
 			_ = r.Body.Close()
@@ -84,25 +83,25 @@ func Idempotency(repo repository.IdempotencyRepository) func(http.Handler) http.
 
 			created, err := repo.CreatePending(r.Context(), record)
 			if err != nil {
-				http.Error(w, "idempotency check failed", http.StatusInternalServerError)
+				writeJSONError(w, http.StatusInternalServerError, "idempotency_check_failed", "Idempotency check failed", nil)
 				return
 			}
 			if !created {
 				existing, err := repo.Get(r.Context(), key, claims.UserID, r.Method, r.URL.Path)
 				if err != nil {
 					if errors.Is(err, repository.ErrNotFound) {
-						http.Error(w, "idempotency key conflict", http.StatusConflict)
+						writeJSONError(w, http.StatusConflict, "idempotency_key_conflict", "Idempotency key conflict", nil)
 						return
 					}
-					http.Error(w, "idempotency check failed", http.StatusInternalServerError)
+					writeJSONError(w, http.StatusInternalServerError, "idempotency_check_failed", "Idempotency check failed", nil)
 					return
 				}
 				if existing.RequestHash != requestHash {
-					http.Error(w, "idempotency key reused with different request", http.StatusConflict)
+					writeJSONError(w, http.StatusConflict, "idempotency_key_reused", "Idempotency key reused with different request", nil)
 					return
 				}
 				if existing.StatusCode == nil {
-					http.Error(w, "idempotency request is still in progress", http.StatusConflict)
+					writeJSONError(w, http.StatusConflict, "idempotency_in_progress", "Idempotency request is still in progress", nil)
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
@@ -120,7 +119,7 @@ func Idempotency(repo repository.IdempotencyRepository) func(http.Handler) http.
 					writeIdempotencyCompletionUnknown(w)
 					return
 				}
-				http.Error(w, "idempotency completion failed", http.StatusInternalServerError)
+				writeJSONError(w, http.StatusInternalServerError, "idempotency_completion_failed", "Idempotency completion failed", nil)
 				return
 			}
 			rec.flushTo(w)
@@ -129,25 +128,7 @@ func Idempotency(repo repository.IdempotencyRepository) func(http.Handler) http.
 }
 
 func writeIdempotencyCompletionUnknown(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusConflict)
-	_ = json.NewEncoder(w).Encode(struct {
-		Error struct {
-			Code    string         `json:"code"`
-			Message string         `json:"message"`
-			Details map[string]any `json:"details"`
-		} `json:"error"`
-	}{
-		Error: struct {
-			Code    string         `json:"code"`
-			Message string         `json:"message"`
-			Details map[string]any `json:"details"`
-		}{
-			Code:    "idempotency_completion_unknown",
-			Message: idempotencyCompletionUnknownMessage,
-			Details: nil,
-		},
-	})
+	writeJSONError(w, http.StatusConflict, "idempotency_completion_unknown", idempotencyCompletionUnknownMessage, nil)
 }
 
 func hashRequestBody(body []byte) string {

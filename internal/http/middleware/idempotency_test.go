@@ -78,8 +78,8 @@ func TestIdempotencyReturnsCompletionUnknownWhenCompleteFailsAfterSuccess(t *tes
 	if body.Error.Message != idempotencyCompletionUnknownMessage {
 		t.Fatalf("message = %q", body.Error.Message)
 	}
-	if body.Error.Details != nil {
-		t.Fatalf("details = %#v, want nil", body.Error.Details)
+	if len(body.Error.Details) != 0 {
+		t.Fatalf("details = %#v, want empty", body.Error.Details)
 	}
 	record := repo.records["create-transaction\x00user-1\x00POST\x00/api/v1/transactions"]
 	if record == nil {
