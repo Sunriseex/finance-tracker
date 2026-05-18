@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
@@ -133,23 +132,5 @@ func forwardedClientIP(r *http.Request) string {
 }
 
 func writeRateLimitError(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusTooManyRequests)
-	_ = json.NewEncoder(w).Encode(struct {
-		Error struct {
-			Code    string         `json:"code"`
-			Message string         `json:"message"`
-			Details map[string]any `json:"details"`
-		} `json:"error"`
-	}{
-		Error: struct {
-			Code    string         `json:"code"`
-			Message string         `json:"message"`
-			Details map[string]any `json:"details"`
-		}{
-			Code:    "rate_limited",
-			Message: "Rate limit exceeded",
-			Details: nil,
-		},
-	})
+	writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "Rate limit exceeded", nil)
 }

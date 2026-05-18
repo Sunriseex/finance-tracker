@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sunriseex/capitalflow/internal/auth"
+	"github.com/sunriseex/capitalflow/internal/http/dto"
 	"github.com/sunriseex/capitalflow/internal/models"
 	"github.com/sunriseex/capitalflow/internal/repository"
 )
@@ -30,6 +32,7 @@ func TestRouterUsesAPIV1Only(t *testing.T) {
 	if newRec.Code != http.StatusUnauthorized {
 		t.Fatalf("new api status = %d, want %d", newRec.Code, http.StatusUnauthorized)
 	}
+	assertJSONErrorEnvelope(t, newRec, "unauthorized")
 }
 
 func TestMetricsEndpointExposesAuthCounters(t *testing.T) {
@@ -100,6 +103,7 @@ func TestRouterLimitsAuthEndpoints(t *testing.T) {
 			if rec.Header().Get("Retry-After") == "" {
 				t.Fatal("Retry-After header is required")
 			}
+			assertJSONErrorEnvelope(t, rec, "rate_limited")
 		}
 	}
 }
@@ -190,6 +194,7 @@ func TestIdempotencyReplaysStoredMutationResponse(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("mismatched idempotency status = %d, want %d", rec.Code, http.StatusConflict)
 	}
+	assertJSONErrorEnvelope(t, rec, "idempotency_key_reused")
 }
 
 func TestFinanceMutationsRequireIdempotencyKey(t *testing.T) {
@@ -304,4 +309,25 @@ func (r *testIdempotencyRepo) Complete(_ context.Context, key, userID, method, p
 
 func idempotencyTestKey(key, userID, method, path string) string {
 	return key + "\x00" + userID + "\x00" + method + "\x00" + path
+}
+
+func assertJSONErrorEnvelope(t *testing.T, rec *httptest.ResponseRecorder, wantCode string) {
+	t.Helper()
+
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("content type = %q, want application/json", got)
+	}
+	var body dto.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error envelope: %v; body = %s", err, rec.Body.String())
+	}
+	if body.Error.Code != wantCode {
+		t.Fatalf("error code = %q, want %q; body = %s", body.Error.Code, wantCode, rec.Body.String())
+	}
+	if body.Error.Message == "" {
+		t.Fatalf("error message is empty; body = %s", rec.Body.String())
+	}
+	if body.Error.Details == nil {
+		t.Fatalf("error details = nil, want empty object; body = %s", rec.Body.String())
+	}
 }

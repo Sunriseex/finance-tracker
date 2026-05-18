@@ -20,20 +20,20 @@ func BearerTokenAuth(expectedToken string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.TrimSpace(expectedToken) == "" {
-				http.Error(w, "authentication is not configured", http.StatusServiceUnavailable)
+				writeJSONError(w, http.StatusServiceUnavailable, "authentication_not_configured", "Authentication is not configured", nil)
 				return
 			}
 
 			authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
 			const prefix = "Bearer "
 			if !strings.HasPrefix(authHeader, prefix) {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Unauthorized", nil)
 				return
 			}
 
 			token := strings.TrimSpace(strings.TrimPrefix(authHeader, prefix))
 			if subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) != 1 {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Unauthorized", nil)
 				return
 			}
 
@@ -46,28 +46,28 @@ func JWTAuth(tokens *auth.TokenService, refreshTokens repository.RefreshTokenRep
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if tokens == nil || refreshTokens == nil {
-				http.Error(w, "authentication is not configured", http.StatusServiceUnavailable)
+				writeJSONError(w, http.StatusServiceUnavailable, "authentication_not_configured", "Authentication is not configured", nil)
 				return
 			}
 
 			token, ok := bearerToken(r)
 			if !ok {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Unauthorized", nil)
 				return
 			}
 
 			claims, err := tokens.ValidateAccess(token, time.Now())
 			if err != nil {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Unauthorized", nil)
 				return
 			}
 			session, err := refreshTokens.GetByID(r.Context(), claims.SessionID)
 			if err != nil || session.UserID != claims.UserID || !session.IsActive(time.Now()) {
 				if err != nil && !errors.Is(err, repository.ErrNotFound) {
-					http.Error(w, "authentication is not configured", http.StatusServiceUnavailable)
+					writeJSONError(w, http.StatusServiceUnavailable, "authentication_not_configured", "Authentication is not configured", nil)
 					return
 				}
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Unauthorized", nil)
 				return
 			}
 

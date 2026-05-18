@@ -194,7 +194,7 @@ func TestRateLimitByIPRejectsWithJSONEnvelope(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body.Error.Code != "rate_limited" || body.Error.Message != "Rate limit exceeded" || body.Error.Details != nil {
+	if body.Error.Code != "rate_limited" || body.Error.Message != "Rate limit exceeded" || len(body.Error.Details) != 0 {
 		t.Fatalf("error = %+v", body.Error)
 	}
 }
