@@ -607,7 +607,7 @@ func (r *recordingTransactionRepo) CreateMany(context.Context, []models.Transact
 	return nil
 }
 
-func (r *recordingTransactionRepo) CreateTransfer(context.Context, string, string, string, string, string, []models.Transaction) error {
+func (r *recordingTransactionRepo) CreateTransfer(context.Context, *models.Transfer, []models.Transaction) error {
 	return nil
 }
 

@@ -32,7 +32,7 @@ func newTestStore(t *testing.T) *Store {
 	t.Cleanup(pool.Close)
 
 	if _, err := pool.Exec(ctx, `
-		TRUNCATE idempotency_keys, interest_accruals, interest_rules, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
+		TRUNCATE idempotency_keys, interest_accruals, interest_rules, transfers, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatalf("truncate test tables; run migrations first: %v", err)
 	}
@@ -1209,28 +1209,8 @@ func TestTransactionCreateTransferLocksAccountsAndRollsBack(t *testing.T) {
 			fromID, toID = to.ID, from.ID
 		}
 		wg.Go(func() {
-			relatedTo := toID
-			relatedFrom := fromID
-			errs <- transactions.CreateTransfer(ctx, userID, fromID, toID, "RUB", "RUB", []models.Transaction{
-				{
-					ID:               uuid.NewString(),
-					AccountID:        fromID,
-					RelatedAccountID: &relatedTo,
-					Type:             models.TransactionTypeTransferOut,
-					AmountMinor:      100,
-					OccurredAt:       now,
-					CreatedAt:        now,
-				},
-				{
-					ID:               uuid.NewString(),
-					AccountID:        toID,
-					RelatedAccountID: &relatedFrom,
-					Type:             models.TransactionTypeTransferIn,
-					AmountMinor:      100,
-					OccurredAt:       now,
-					CreatedAt:        now,
-				},
-			})
+			transfer, transferTransactions := transferTestRows(userID, fromID, toID, "RUB", "RUB", 100, 100, "1", now)
+			errs <- transactions.CreateTransfer(ctx, transfer, transferTransactions)
 		})
 	}
 	wg.Wait()
@@ -1268,24 +1248,8 @@ func TestTransactionCreateTransferLocksAccountsAndRollsBack(t *testing.T) {
 		t.Fatalf("create other user: %v", err)
 	}
 	otherAccount := transferTestAccount(t, store, otherUserID, "other")
-	err = transactions.CreateTransfer(ctx, userID, from.ID, otherAccount.ID, "RUB", "RUB", []models.Transaction{
-		{
-			ID:          uuid.NewString(),
-			AccountID:   from.ID,
-			Type:        models.TransactionTypeTransferOut,
-			AmountMinor: 100,
-			OccurredAt:  now,
-			CreatedAt:   now,
-		},
-		{
-			ID:          uuid.NewString(),
-			AccountID:   otherAccount.ID,
-			Type:        models.TransactionTypeTransferIn,
-			AmountMinor: 100,
-			OccurredAt:  now,
-			CreatedAt:   now,
-		},
-	})
+	transfer, transferTransactions := transferTestRows(userID, from.ID, otherAccount.ID, "RUB", "RUB", 100, 100, "1", now)
+	err = transactions.CreateTransfer(ctx, transfer, transferTransactions)
 	if !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("wrong owner err = %v, want ErrNotFound", err)
 	}
@@ -1322,24 +1286,8 @@ func TestTransactionCreateTransferRejectsStaleLockedCurrencies(t *testing.T) {
 		t.Fatalf("update to account currency: %v", err)
 	}
 
-	err := store.Transactions().CreateTransfer(ctx, userID, from.ID, to.ID, "RUB", "KRW", []models.Transaction{
-		{
-			ID:          uuid.NewString(),
-			AccountID:   from.ID,
-			Type:        models.TransactionTypeTransferOut,
-			AmountMinor: 100,
-			OccurredAt:  now,
-			CreatedAt:   now,
-		},
-		{
-			ID:          uuid.NewString(),
-			AccountID:   to.ID,
-			Type:        models.TransactionTypeTransferIn,
-			AmountMinor: 1_625,
-			OccurredAt:  now,
-			CreatedAt:   now,
-		},
-	})
+	transfer, transferTransactions := transferTestRows(userID, from.ID, to.ID, "RUB", "KRW", 100, 1_625, "16.25", now)
+	err := store.Transactions().CreateTransfer(ctx, transfer, transferTransactions)
 	if !errors.Is(err, repository.ErrConflict) {
 		t.Fatalf("stale currency err = %v, want ErrConflict", err)
 	}
@@ -1349,6 +1297,63 @@ func TestTransactionCreateTransferRejectsStaleLockedCurrencies(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("stale currency transfer inserted transactions: %+v", got)
+	}
+}
+
+func TestTransactionCreateTransferPersistsAuditRecord(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+	now := time.Now().UTC()
+	userID := uuid.NewString()
+	if err := store.Users().Create(ctx, &models.User{
+		ID:              userID,
+		Email:           "audit-transfer@example.com",
+		PasswordHash:    "hash",
+		PrimaryCurrency: "RUB",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	from := transferTestAccount(t, store, userID, "from-audit")
+	to := transferTestAccount(t, store, userID, "to-audit")
+	to.Currency = "KRW"
+	to.UpdatedAt = now.Add(time.Minute)
+	if err := store.Accounts().UpdateForUserEnforcingCurrencyInvariant(ctx, to, userID); err != nil {
+		t.Fatalf("update to account currency: %v", err)
+	}
+
+	transfer, transferTransactions := transferTestRows(userID, from.ID, to.ID, "RUB", "KRW", 1_000_000, 16_250_000, "16.25", now)
+	if err := store.Transactions().CreateTransfer(ctx, transfer, transferTransactions); err != nil {
+		t.Fatalf("create transfer: %v", err)
+	}
+
+	var gotRate string
+	var gotFromTx string
+	var gotToTx string
+	if err := store.pool.QueryRow(ctx, `
+		SELECT exchange_rate::text, from_transaction_id::text, to_transaction_id::text
+		FROM transfers
+		WHERE id = $1
+	`, transfer.ID).Scan(&gotRate, &gotFromTx, &gotToTx); err != nil {
+		t.Fatalf("get transfer audit: %v", err)
+	}
+	if gotRate != "16.250000000000000000" {
+		t.Fatalf("exchange rate = %s, want 16.250000000000000000", gotRate)
+	}
+	if gotFromTx != transferTransactions[0].ID || gotToTx != transferTransactions[1].ID {
+		t.Fatalf("linked tx ids = %s/%s, want %s/%s", gotFromTx, gotToTx, transferTransactions[0].ID, transferTransactions[1].ID)
+	}
+
+	gotTransactions, err := store.Transactions().ListByUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("list transfer transactions: %v", err)
+	}
+	for i := range gotTransactions {
+		if gotTransactions[i].TransferID == nil || *gotTransactions[i].TransferID != transfer.ID {
+			t.Fatalf("transaction %s transfer_id = %v, want %s", gotTransactions[i].ID, gotTransactions[i].TransferID, transfer.ID)
+		}
 	}
 }
 
@@ -1370,6 +1375,51 @@ func transferTestAccount(t *testing.T, store *Store, userID, name string) *model
 		t.Fatalf("create account %s: %v", name, err)
 	}
 	return account
+}
+
+func transferTestRows(userID, fromID, toID, fromCurrency, toCurrency string, fromAmount, toAmount int64, exchangeRate string, now time.Time) (*models.Transfer, []models.Transaction) {
+	transferID := uuid.NewString()
+	fromTransactionID := uuid.NewString()
+	toTransactionID := uuid.NewString()
+	relatedTo := toID
+	relatedFrom := fromID
+	return &models.Transfer{
+			ID:                   transferID,
+			UserID:               userID,
+			FromAccountID:        fromID,
+			ToAccountID:          toID,
+			FromTransactionID:    fromTransactionID,
+			ToTransactionID:      toTransactionID,
+			FromAmountMinor:      fromAmount,
+			ToAmountMinor:        toAmount,
+			FromCurrency:         fromCurrency,
+			ToCurrency:           toCurrency,
+			ExchangeRate:         exchangeRate,
+			ExchangeRateProvider: "test",
+			ExchangeRateDate:     now,
+			CreatedAt:            now,
+		}, []models.Transaction{
+			{
+				ID:               fromTransactionID,
+				AccountID:        fromID,
+				RelatedAccountID: &relatedTo,
+				TransferID:       &transferID,
+				Type:             models.TransactionTypeTransferOut,
+				AmountMinor:      fromAmount,
+				OccurredAt:       now,
+				CreatedAt:        now,
+			},
+			{
+				ID:               toTransactionID,
+				AccountID:        toID,
+				RelatedAccountID: &relatedFrom,
+				TransferID:       &transferID,
+				Type:             models.TransactionTypeTransferIn,
+				AmountMinor:      toAmount,
+				OccurredAt:       now,
+				CreatedAt:        now,
+			},
+		}
 }
 
 func seedInterestLockTestData(ctx context.Context, t *testing.T, store *Store, email, accountName string) (string, *models.Account, *models.InterestRule) {

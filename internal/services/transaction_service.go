@@ -85,7 +85,7 @@ func (s *TransactionService) CreateMany(ctx context.Context, reqs ...*CreateTran
 	return transactions, nil
 }
 
-func (s *TransactionService) CreateTransfer(ctx context.Context, userID, fromAccountID, toAccountID, fromCurrency, toCurrency string, reqs ...*CreateTransactionRequest) ([]models.Transaction, error) {
+func (s *TransactionService) CreateTransfer(ctx context.Context, transfer *models.Transfer, reqs ...*CreateTransactionRequest) ([]models.Transaction, error) {
 	transactions := make([]models.Transaction, 0, len(reqs))
 	for _, req := range reqs {
 		transaction, err := buildTransaction(ctx, req)
@@ -96,7 +96,18 @@ func (s *TransactionService) CreateTransfer(ctx context.Context, userID, fromAcc
 	}
 
 	if s.repo != nil {
-		if err := s.repo.CreateTransfer(ctx, userID, fromAccountID, toAccountID, fromCurrency, toCurrency, transactions); err != nil {
+		if transfer == nil {
+			return nil, validationError("transfer audit record is required")
+		}
+		if len(transactions) != 2 {
+			return nil, validationError("transfer requires exactly two transactions")
+		}
+		transfer.FromTransactionID = transactions[0].ID
+		transfer.ToTransactionID = transactions[1].ID
+		for i := range transactions {
+			transactions[i].TransferID = &transfer.ID
+		}
+		if err := s.repo.CreateTransfer(ctx, transfer, transactions); err != nil {
 			return nil, fmt.Errorf("save transfer transactions: %w", err)
 		}
 	}

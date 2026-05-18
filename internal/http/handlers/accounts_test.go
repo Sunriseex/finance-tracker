@@ -214,9 +214,9 @@ func (r *testTransactionRepo) CreateMany(context.Context, []models.Transaction) 
 	return nil
 }
 
-func (r *testTransactionRepo) CreateTransfer(_ context.Context, userID, _, _, _, _ string, transactions []models.Transaction) error {
+func (r *testTransactionRepo) CreateTransfer(_ context.Context, transfer *models.Transfer, transactions []models.Transaction) error {
 	r.createTransferCalls++
-	r.createTransferUserID = userID
+	r.createTransferUserID = transfer.UserID
 	r.createTransferTransactions = append(r.createTransferTransactions[:0], transactions...)
 	return nil
 }

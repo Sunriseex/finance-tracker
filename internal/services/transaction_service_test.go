@@ -212,7 +212,7 @@ func (r failingTransactionRepo) CreateMany(_ context.Context, _ []models.Transac
 	return r.err
 }
 
-func (r failingTransactionRepo) CreateTransfer(_ context.Context, _, _, _, _, _ string, _ []models.Transaction) error {
+func (r failingTransactionRepo) CreateTransfer(_ context.Context, _ *models.Transfer, _ []models.Transaction) error {
 	return r.err
 }
 

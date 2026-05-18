@@ -107,11 +107,21 @@ func TestTransferServiceCreateConvertsCrossCurrencyAmount(t *testing.T) {
 	if repo.fromCurrency != "RUB" || repo.toCurrency != "KRW" {
 		t.Fatalf("repo currencies = %s/%s, want RUB/KRW", repo.fromCurrency, repo.toCurrency)
 	}
+	if repo.transfer == nil {
+		t.Fatal("transfer audit record was not persisted")
+	}
+	if repo.transfer.ExchangeRate != "16.25" || repo.transfer.FromAmountMinor != 1_000_000 || repo.transfer.ToAmountMinor != 16_250_000 {
+		t.Fatalf("transfer audit = rate %s amounts %d/%d, want 16.25 1000000/16250000", repo.transfer.ExchangeRate, repo.transfer.FromAmountMinor, repo.transfer.ToAmountMinor)
+	}
+	if repo.transfer.FromTransactionID == "" || repo.transfer.ToTransactionID == "" {
+		t.Fatalf("transfer audit transaction ids must be set: %+v", repo.transfer)
+	}
 }
 
 type batchTransactionRepo struct {
 	createCalls  int
 	batches      [][]models.Transaction
+	transfer     *models.Transfer
 	fromCurrency string
 	toCurrency   string
 }
@@ -130,9 +140,10 @@ func (r *batchTransactionRepo) CreateMany(_ context.Context, transactions []mode
 	return nil
 }
 
-func (r *batchTransactionRepo) CreateTransfer(ctx context.Context, _, _, _, fromCurrency, toCurrency string, transactions []models.Transaction) error {
-	r.fromCurrency = fromCurrency
-	r.toCurrency = toCurrency
+func (r *batchTransactionRepo) CreateTransfer(ctx context.Context, transfer *models.Transfer, transactions []models.Transaction) error {
+	r.transfer = transfer
+	r.fromCurrency = transfer.FromCurrency
+	r.toCurrency = transfer.ToCurrency
 	return r.CreateMany(ctx, transactions)
 }
 
