@@ -36,14 +36,12 @@ func (r *TransactionRepository) CreateForUser(ctx context.Context, userID string
 		_ = tx.Rollback(ctx)
 	}()
 
-	var accountID string
-	if err := tx.QueryRow(ctx, `
-		SELECT id
-		FROM accounts
-		WHERE id = $1 AND owner_user_id = $2
-		FOR UPDATE
-	`, transaction.AccountID, userID).Scan(&accountID); err != nil {
-		return fmt.Errorf("lock transaction account: %w", mapNotFound(err))
+	accountIDs := []string{transaction.AccountID}
+	if transaction.RelatedAccountID != nil {
+		accountIDs = append(accountIDs, *transaction.RelatedAccountID)
+	}
+	if err := lockTransactionAccountsForUser(ctx, tx, userID, accountIDs); err != nil {
+		return fmt.Errorf("lock transaction accounts: %w", err)
 	}
 
 	if err := insertTransaction(ctx, tx, transaction); err != nil {
@@ -51,6 +49,43 @@ func (r *TransactionRepository) CreateForUser(ctx context.Context, userID string
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit create user transaction: %w", err)
+	}
+	return nil
+}
+
+func lockTransactionAccountsForUser(ctx context.Context, db queryer, userID string, accountIDs []string) error {
+	accountIDs = slices.Clone(accountIDs)
+	slices.Sort(accountIDs)
+	accountIDs = slices.Compact(accountIDs)
+
+	if len(accountIDs) == 0 {
+		return repository.ErrNotFound
+	}
+	if len(accountIDs) == 1 {
+		return lockAccountForUser(ctx, db, accountIDs[0], userID)
+	}
+
+	rows, err := db.Query(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE id IN ($1, $2) AND owner_user_id = $3
+		ORDER BY id
+		FOR UPDATE
+	`, accountIDs[0], accountIDs[1], userID)
+	if err != nil {
+		return fmt.Errorf("query locked transaction accounts: %w", err)
+	}
+	defer rows.Close()
+
+	locked := 0
+	for rows.Next() {
+		locked++
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read locked transaction accounts: %w", err)
+	}
+	if locked != len(accountIDs) {
+		return repository.ErrNotFound
 	}
 	return nil
 }
@@ -75,7 +110,7 @@ func (r *TransactionRepository) CreateMany(ctx context.Context, transactions []m
 	return nil
 }
 
-func (r *TransactionRepository) CreateTransfer(ctx context.Context, userID, fromAccountID, toAccountID, fromCurrency, toCurrency string, transactions []models.Transaction) error {
+func (r *TransactionRepository) CreateTransfer(ctx context.Context, transfer *models.Transfer, transactions []models.Transaction) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin create transfer: %w", err)
@@ -84,7 +119,7 @@ func (r *TransactionRepository) CreateTransfer(ctx context.Context, userID, from
 		_ = tx.Rollback(ctx)
 	}()
 
-	accountIDs := []string{fromAccountID, toAccountID}
+	accountIDs := []string{transfer.FromAccountID, transfer.ToAccountID}
 	slices.Sort(accountIDs)
 	rows, err := tx.Query(ctx, `
 		SELECT id, currency
@@ -92,7 +127,7 @@ func (r *TransactionRepository) CreateTransfer(ctx context.Context, userID, from
 		WHERE id IN ($1, $2) AND owner_user_id = $3
 		ORDER BY id
 		FOR UPDATE
-	`, accountIDs[0], accountIDs[1], userID)
+	`, accountIDs[0], accountIDs[1], transfer.UserID)
 	if err != nil {
 		return fmt.Errorf("lock transfer accounts: %w", err)
 	}
@@ -114,13 +149,16 @@ func (r *TransactionRepository) CreateTransfer(ctx context.Context, userID, from
 	if len(lockedCurrencies) != 2 {
 		return fmt.Errorf("lock transfer accounts: %w", repository.ErrNotFound)
 	}
-	if strings.TrimSpace(fromCurrency) != "" && lockedCurrencies[fromAccountID] != strings.TrimSpace(fromCurrency) {
+	if strings.TrimSpace(transfer.FromCurrency) != "" && lockedCurrencies[transfer.FromAccountID] != strings.TrimSpace(transfer.FromCurrency) {
 		return fmt.Errorf("lock transfer accounts: %w", repository.ErrConflict)
 	}
-	if strings.TrimSpace(toCurrency) != "" && lockedCurrencies[toAccountID] != strings.TrimSpace(toCurrency) {
+	if strings.TrimSpace(transfer.ToCurrency) != "" && lockedCurrencies[transfer.ToAccountID] != strings.TrimSpace(transfer.ToCurrency) {
 		return fmt.Errorf("lock transfer accounts: %w", repository.ErrConflict)
 	}
 
+	if err := insertTransfer(ctx, tx, transfer); err != nil {
+		return fmt.Errorf("create transfer audit: %w", err)
+	}
 	for i := range transactions {
 		if err := insertTransaction(ctx, tx, &transactions[i]); err != nil {
 			return fmt.Errorf("create transfer transaction %s: %w", transactions[i].ID, err)
@@ -256,7 +294,7 @@ type transactionScanner interface {
 }
 
 const transactionSelectSQL = `
-	SELECT t.id, t.account_id, t.related_account_id, t.type, t.amount_minor, t.category_id, t.description, t.occurred_at, t.created_at
+	SELECT t.id, t.account_id, t.related_account_id, t.transfer_id, t.type, t.amount_minor, t.category_id, t.description, t.occurred_at, t.created_at
 	FROM transactions t
 `
 
@@ -266,6 +304,7 @@ func scanTransaction(row transactionScanner) (*models.Transaction, error) {
 		&transaction.ID,
 		&transaction.AccountID,
 		&transaction.RelatedAccountID,
+		&transaction.TransferID,
 		&transaction.Type,
 		&transaction.AmountMinor,
 		&transaction.CategoryID,
@@ -280,11 +319,26 @@ func scanTransaction(row transactionScanner) (*models.Transaction, error) {
 
 func insertTransaction(ctx context.Context, execer sqlExecer, transaction *models.Transaction) error {
 	_, err := execer.Exec(ctx, `
-		INSERT INTO transactions (id, account_id, related_account_id, type, amount_minor, category_id, description, occurred_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, transaction.ID, transaction.AccountID, transaction.RelatedAccountID, transaction.Type, transaction.AmountMinor, transaction.CategoryID, transaction.Description, transaction.OccurredAt, transaction.CreatedAt)
+		INSERT INTO transactions (id, account_id, related_account_id, transfer_id, type, amount_minor, category_id, description, occurred_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, transaction.ID, transaction.AccountID, transaction.RelatedAccountID, transaction.TransferID, transaction.Type, transaction.AmountMinor, transaction.CategoryID, transaction.Description, transaction.OccurredAt, transaction.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert transaction: %w", err)
+	}
+	return nil
+}
+
+func insertTransfer(ctx context.Context, execer sqlExecer, transfer *models.Transfer) error {
+	_, err := execer.Exec(ctx, `
+		INSERT INTO transfers (
+			id, user_id, from_account_id, to_account_id, from_transaction_id, to_transaction_id,
+			from_amount_minor, to_amount_minor, from_currency, to_currency, exchange_rate,
+			exchange_rate_provider, exchange_rate_date, created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12, $13, $14)
+	`, transfer.ID, transfer.UserID, transfer.FromAccountID, transfer.ToAccountID, transfer.FromTransactionID, transfer.ToTransactionID, transfer.FromAmountMinor, transfer.ToAmountMinor, transfer.FromCurrency, transfer.ToCurrency, transfer.ExchangeRate, transfer.ExchangeRateProvider, transfer.ExchangeRateDate, transfer.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("insert transfer: %w", err)
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ type TransactionResponse struct {
 	ID               string                 `json:"id"`
 	AccountID        string                 `json:"account_id"`
 	RelatedAccountID *string                `json:"related_account_id,omitempty"`
+	TransferID       *string                `json:"transfer_id,omitempty"`
 	Type             models.TransactionType `json:"type"`
 	AmountMinor      int64                  `json:"amount_minor"`
 	CategoryID       *string                `json:"category_id,omitempty"`
@@ -33,6 +34,7 @@ func TransactionFromModel(transaction *models.Transaction) TransactionResponse {
 		ID:               transaction.ID,
 		AccountID:        transaction.AccountID,
 		RelatedAccountID: transaction.RelatedAccountID,
+		TransferID:       transaction.TransferID,
 		Type:             transaction.Type,
 		AmountMinor:      transaction.AmountMinor,
 		CategoryID:       transaction.CategoryID,

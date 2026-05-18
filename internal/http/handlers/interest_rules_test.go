@@ -224,7 +224,7 @@ func (r *testInterestTransactionRepo) CreateMany(context.Context, []models.Trans
 	return nil
 }
 
-func (r *testInterestTransactionRepo) CreateTransfer(context.Context, string, string, string, string, string, []models.Transaction) error {
+func (r *testInterestTransactionRepo) CreateTransfer(context.Context, *models.Transfer, []models.Transaction) error {
 	return nil
 }
 

@@ -655,7 +655,7 @@ func (r *fakeTransactionRepo) CreateMany(ctx context.Context, transactions []mod
 	return nil
 }
 
-func (r *fakeTransactionRepo) CreateTransfer(ctx context.Context, _, _, _, _, _ string, transactions []models.Transaction) error {
+func (r *fakeTransactionRepo) CreateTransfer(ctx context.Context, _ *models.Transfer, transactions []models.Transaction) error {
 	return r.CreateMany(ctx, transactions)
 }
 

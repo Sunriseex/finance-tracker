@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sunriseex/capitalflow/internal/models"
+	"github.com/sunriseex/capitalflow/internal/repository"
 )
 
 func TestTransactionServiceCreate(t *testing.T) {
@@ -54,6 +55,47 @@ func TestTransactionServiceCreateForUser(t *testing.T) {
 	}
 	if repo.transaction == nil || repo.transaction.ID != tx.ID {
 		t.Fatal("repo did not receive created transaction")
+	}
+}
+
+func TestTransactionServiceCreateForUserRejectsForeignAccounts(t *testing.T) {
+	foreignRelatedAccountID := "foreign-related-account"
+	tests := []struct {
+		name             string
+		accountID        string
+		relatedAccountID *string
+	}{
+		{
+			name:      "foreign account",
+			accountID: "foreign-account",
+		},
+		{
+			name:             "foreign related account",
+			accountID:        "owned-account",
+			relatedAccountID: &foreignRelatedAccountID,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &userScopedTransactionRepo{
+				userID:          "user-1",
+				accountID:       "owned-account",
+				relatedAccounts: map[string]bool{"owned-related-account": true},
+			}
+			_, err := NewTransactionService(repo).CreateForUser(t.Context(), "user-1", &CreateTransactionRequest{
+				AccountID:        tt.accountID,
+				RelatedAccountID: tt.relatedAccountID,
+				Type:             models.TransactionTypeIncome,
+				AmountMinor:      10_000,
+			})
+			if !errors.Is(err, repository.ErrNotFound) {
+				t.Fatalf("error = %v, want ErrNotFound", err)
+			}
+			if repo.createCalls != 0 {
+				t.Fatalf("old Create calls = %d, want 0", repo.createCalls)
+			}
+		})
 	}
 }
 
@@ -212,7 +254,7 @@ func (r failingTransactionRepo) CreateMany(_ context.Context, _ []models.Transac
 	return r.err
 }
 
-func (r failingTransactionRepo) CreateTransfer(_ context.Context, _, _, _, _, _ string, _ []models.Transaction) error {
+func (r failingTransactionRepo) CreateTransfer(_ context.Context, _ *models.Transfer, _ []models.Transaction) error {
 	return r.err
 }
 
@@ -250,6 +292,29 @@ func (r failingTransactionRepo) Delete(_ context.Context, _ string) error {
 
 func (r failingTransactionRepo) DeleteForUser(_ context.Context, _, _ string) error {
 	return r.err
+}
+
+type userScopedTransactionRepo struct {
+	failingTransactionRepo
+	createCalls     int
+	userID          string
+	accountID       string
+	relatedAccounts map[string]bool
+}
+
+func (r *userScopedTransactionRepo) Create(_ context.Context, _ *models.Transaction) error {
+	r.createCalls++
+	return errors.New("unexpected unscoped create")
+}
+
+func (r *userScopedTransactionRepo) CreateForUser(_ context.Context, userID string, transaction *models.Transaction) error {
+	if userID != r.userID || transaction.AccountID != r.accountID {
+		return repository.ErrNotFound
+	}
+	if transaction.RelatedAccountID != nil && !r.relatedAccounts[*transaction.RelatedAccountID] {
+		return repository.ErrNotFound
+	}
+	return nil
 }
 
 func TestTransactionServiceCreateDoesNotClassifyRepositoryErrorAsValidation(t *testing.T) {

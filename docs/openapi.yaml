@@ -897,6 +897,10 @@ components:
           type: string
           format: uuid
           nullable: true
+        transfer_id:
+          type: string
+          format: uuid
+          nullable: true
         type:
           $ref: "#/components/schemas/TransactionType"
         amount_minor:

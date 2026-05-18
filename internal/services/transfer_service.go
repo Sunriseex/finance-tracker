@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/sunriseex/capitalflow/internal/models"
 )
@@ -69,9 +72,25 @@ func (s *TransferService) Create(ctx context.Context, req *CreateTransferRequest
 		exchangeRate = rate.String()
 	}
 
+	now := time.Now().UTC()
+	transfer := &models.Transfer{
+		ID:                   uuid.NewString(),
+		UserID:               strings.TrimSpace(req.UserID),
+		FromAccountID:        fromAccountID,
+		ToAccountID:          toAccountID,
+		FromAmountMinor:      req.AmountMinor,
+		ToAmountMinor:        inAmountMinor,
+		FromCurrency:         fromCurrency,
+		ToCurrency:           toCurrency,
+		ExchangeRate:         exchangeRate,
+		ExchangeRateProvider: "internal",
+		ExchangeRateDate:     now,
+		CreatedAt:            now,
+	}
+
 	inRelatedID := fromAccountID
 	outRelatedID := toAccountID
-	created, err := s.transactions.CreateTransfer(ctx, strings.TrimSpace(req.UserID), fromAccountID, toAccountID, fromCurrency, toCurrency, &CreateTransactionRequest{
+	created, err := s.transactions.CreateTransfer(ctx, transfer, &CreateTransactionRequest{
 		AccountID:        fromAccountID,
 		RelatedAccountID: &outRelatedID,
 		Type:             models.TransactionTypeTransferOut,
