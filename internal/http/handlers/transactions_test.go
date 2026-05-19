@@ -85,7 +85,7 @@ func TestApplyTransactionListFilter(t *testing.T) {
 		},
 	}
 
-	got := applyTransactionListFilter(transactions, &transactionListFilter{
+	got := applyTransactionListFilter(transactions, &repository.TransactionListFilter{
 		CategoryID: categoryID,
 		Type:       models.TransactionTypeIncome,
 		FromDate:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
@@ -130,6 +130,62 @@ func TestParseTransactionListFilterRejectsInvalidQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestListTransactionsUsesRepositoryFiltering(t *testing.T) {
+	tokens, pair := testProfileTokenPair(t)
+	store := newTestProfileStore()
+	categoryID := "22222222-2222-2222-2222-222222222222"
+	transactions := &testTransactionRepo{
+		listFilteredTransactions: []models.Transaction{
+			{
+				ID:          "33333333-3333-3333-3333-333333333333",
+				AccountID:   "11111111-1111-1111-1111-111111111111",
+				Type:        models.TransactionTypeIncome,
+				AmountMinor: 100,
+				CategoryID:  &categoryID,
+				Description: "Salary June",
+				OccurredAt:  time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+				CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	store.transactions = transactions
+	store.refresh.byID[pair.RefreshTokenID] = activeTestRefreshToken(pair, "user-1")
+
+	router := NewRouter(store, &RouterConfig{TokenService: tokens})
+	req := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		"/api/v1/transactions?account_id=11111111-1111-1111-1111-111111111111&category_id="+categoryID+"&type=income&from_date=2026-05-01&to_date=2026-06-30&search=salary&limit=10&page=2",
+		nil,
+	)
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if transactions.listFilteredCalls != 1 {
+		t.Fatalf("ListByUserFiltered calls = %d, want 1", transactions.listFilteredCalls)
+	}
+	if transactions.listFilteredUserID != "user-1" {
+		t.Fatalf("filtered user id = %q, want user-1", transactions.listFilteredUserID)
+	}
+	filter := transactions.listFilteredFilter
+	if filter.AccountID != "11111111-1111-1111-1111-111111111111" ||
+		filter.CategoryID != categoryID ||
+		filter.Type != models.TransactionTypeIncome ||
+		filter.Search != "salary" ||
+		filter.Limit != 10 ||
+		filter.Page != 2 ||
+		filter.FromDate.IsZero() ||
+		filter.ToDate.IsZero() {
+		t.Fatalf("unexpected filter: %+v", filter)
+	}
+}
+
 func TestCreateTransactionRejectsTransferTypes(t *testing.T) {
 	tests := []models.TransactionType{
 		models.TransactionTypeTransferIn,

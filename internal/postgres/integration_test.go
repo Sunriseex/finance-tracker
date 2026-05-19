@@ -1636,6 +1636,173 @@ func TestTransactionRepositoryGetBalanceByAccountForUserMatchesBalanceService(t 
 	}
 }
 
+func TestTransactionRepositoryListByUserFilteredAppliesSQLFiltersAndPagination(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+	userID := seedUser(ctx, t, store, "filtered-transactions@example.com")
+	otherUserID := seedUser(ctx, t, store, "filtered-transactions-other@example.com")
+	account := transferTestAccount(t, store, userID, "filtered-primary")
+	otherAccount := transferTestAccount(t, store, userID, "filtered-secondary")
+	foreignAccount := transferTestAccount(t, store, otherUserID, "filtered-foreign")
+	categoryID := uuid.NewString()
+	if err := store.Categories().Create(ctx, &models.Category{
+		ID:        categoryID,
+		Slug:      "filtered-salary",
+		Name:      "Filtered Salary",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	transactions := []models.Transaction{
+		{
+			ID:          uuid.NewString(),
+			AccountID:   account.ID,
+			Type:        models.TransactionTypeIncome,
+			AmountMinor: 100,
+			CategoryID:  &categoryID,
+			Description: "Salary May",
+			OccurredAt:  time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+			CreatedAt:   time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:          uuid.NewString(),
+			AccountID:   account.ID,
+			Type:        models.TransactionTypeExpense,
+			AmountMinor: 50,
+			Description: "Salary tagged but expense",
+			OccurredAt:  time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
+			CreatedAt:   time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:          uuid.NewString(),
+			AccountID:   account.ID,
+			Type:        models.TransactionTypeIncome,
+			AmountMinor: 200,
+			CategoryID:  &categoryID,
+			Description: "Salary June",
+			OccurredAt:  time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+			CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:          uuid.NewString(),
+			AccountID:   otherAccount.ID,
+			Type:        models.TransactionTypeIncome,
+			AmountMinor: 300,
+			CategoryID:  &categoryID,
+			Description: "Salary Other Account",
+			OccurredAt:  time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC),
+			CreatedAt:   time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC),
+		},
+	}
+	for i := range transactions {
+		if err := store.Transactions().CreateForUser(ctx, userID, &transactions[i]); err != nil {
+			t.Fatalf("create filtered transaction: %v", err)
+		}
+	}
+	foreign := &models.Transaction{
+		ID:          uuid.NewString(),
+		AccountID:   foreignAccount.ID,
+		Type:        models.TransactionTypeIncome,
+		AmountMinor: 999,
+		CategoryID:  &categoryID,
+		Description: "Salary Foreign",
+		OccurredAt:  time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+		CreatedAt:   time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+	}
+	if err := store.Transactions().CreateForUser(ctx, otherUserID, foreign); err != nil {
+		t.Fatalf("create foreign transaction: %v", err)
+	}
+
+	filter := &repository.TransactionListFilter{
+		AccountID:  account.ID,
+		CategoryID: categoryID,
+		Type:       models.TransactionTypeIncome,
+		FromDate:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		ToDate:     time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		Search:     "salary",
+		Limit:      1,
+		Page:       2,
+	}
+
+	filtered, err := store.Transactions().(*TransactionRepository).ListByUserFiltered(ctx, userID, filter)
+	if err != nil {
+		t.Fatalf("list filtered transactions: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("filtered count = %d, want 1: %+v", len(filtered), filtered)
+	}
+	if filtered[0].ID != transactions[2].ID {
+		t.Fatalf("filtered transaction = %s, want %s", filtered[0].ID, transactions[2].ID)
+	}
+
+}
+
+func TestTransactionRepositoryListByUserFilteredTreatsSearchAsLiteralSubstring(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+
+	userID := seedUser(ctx, t, store, "filtered-literal-search@example.com")
+	account := transferTestAccount(t, store, userID, "filtered-literal-search")
+
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	transactions := []models.Transaction{
+		{
+			ID:          uuid.NewString(),
+			AccountID:   account.ID,
+			Type:        models.TransactionTypeIncome,
+			AmountMinor: 100,
+			Description: "Cashback 5%",
+			OccurredAt:  now,
+			CreatedAt:   now,
+		},
+		{
+			ID:          uuid.NewString(),
+			AccountID:   account.ID,
+			Type:        models.TransactionTypeIncome,
+			AmountMinor: 200,
+			Description: "Cashback normal",
+			OccurredAt:  now.Add(time.Hour),
+			CreatedAt:   now.Add(time.Hour),
+		},
+		{
+			ID:          uuid.NewString(),
+			AccountID:   account.ID,
+			Type:        models.TransactionTypeIncome,
+			AmountMinor: 300,
+			Description: "fee_code",
+			OccurredAt:  now.Add(2 * time.Hour),
+			CreatedAt:   now.Add(2 * time.Hour),
+		},
+	}
+	for i := range transactions {
+		if err := store.Transactions().CreateForUser(ctx, userID, &transactions[i]); err != nil {
+			t.Fatalf("create transaction: %v", err)
+		}
+	}
+
+	filteredPercent, err := store.Transactions().(*TransactionRepository).ListByUserFiltered(ctx, userID, &repository.TransactionListFilter{
+		Search: "%",
+	})
+	if err != nil {
+		t.Fatalf("list percent search: %v", err)
+	}
+	if len(filteredPercent) != 1 || filteredPercent[0].ID != transactions[0].ID {
+		t.Fatalf("percent search = %+v, want only %s", filteredPercent, transactions[0].ID)
+	}
+
+	filteredUnderscore, err := store.Transactions().(*TransactionRepository).ListByUserFiltered(ctx, userID, &repository.TransactionListFilter{
+		Search: "_",
+	})
+	if err != nil {
+		t.Fatalf("list underscore search: %v", err)
+	}
+	if len(filteredUnderscore) != 1 || filteredUnderscore[0].ID != transactions[2].ID {
+		t.Fatalf("underscore search = %+v, want only %s", filteredUnderscore, transactions[2].ID)
+	}
+}
+
 func transferTestAccount(t *testing.T, store *Store, userID, name string) *models.Account {
 	t.Helper()
 	now := time.Now().UTC()

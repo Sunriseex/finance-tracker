@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -201,6 +202,59 @@ func (r *TransactionRepository) ListByUser(ctx context.Context, userID string) (
 		)
 		ORDER BY occurred_at, created_at
 	`, userID)
+}
+
+func (r *TransactionRepository) ListByUserFiltered(ctx context.Context, userID string, filter *repository.TransactionListFilter) ([]models.Transaction, error) {
+	if filter == nil {
+		filter = &repository.TransactionListFilter{}
+	}
+
+	query := transactionSelectSQL + `
+		WHERE EXISTS (
+			SELECT 1 FROM accounts a WHERE a.id = t.account_id AND a.owner_user_id = $1
+		)
+	`
+	args := []any{userID}
+	addArg := func(value any) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	if strings.TrimSpace(filter.AccountID) != "" {
+		query += " AND t.account_id = " + addArg(strings.TrimSpace(filter.AccountID))
+	}
+	if strings.TrimSpace(filter.CategoryID) != "" {
+		query += " AND t.category_id = " + addArg(strings.TrimSpace(filter.CategoryID))
+	}
+	if filter.Type != "" {
+		query += " AND t.type = " + addArg(filter.Type)
+	}
+	if !filter.FromDate.IsZero() {
+		query += " AND t.occurred_at >= " + addArg(transactionFilterDate(filter.FromDate))
+	}
+	if !filter.ToDate.IsZero() {
+		query += " AND t.occurred_at < " + addArg(transactionFilterDate(filter.ToDate).AddDate(0, 0, 1))
+	}
+	if strings.TrimSpace(filter.Search) != "" {
+		search := strings.ToLower(strings.TrimSpace(filter.Search))
+		query += " AND strpos(lower(t.description), " + addArg(search) + ") > 0"
+	}
+
+	query += " ORDER BY t.occurred_at, t.created_at"
+	if filter.Limit > 0 {
+		query += " LIMIT " + addArg(filter.Limit)
+		page := filter.Page
+		if page <= 0 {
+			page = 1
+		}
+		query += " OFFSET " + addArg((page-1)*filter.Limit)
+	}
+
+	return listTransactions(ctx, r.pool, query, args...)
+}
+
+func transactionFilterDate(date time.Time) time.Time {
+	return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func (r *TransactionRepository) ListByAccount(ctx context.Context, accountID string) ([]models.Transaction, error) {

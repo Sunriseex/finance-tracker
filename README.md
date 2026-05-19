@@ -184,7 +184,7 @@ Protected API routes require the `Authorization` header:
 
 ```bash
 curl -H "Authorization: Bearer <API_AUTH_TOKEN>" \
-  http://localhost:8080/api/accounts
+  http://localhost:8080/api/v1/accounts
 ```
 
 ## Running the WebUI
@@ -205,49 +205,49 @@ The Vite dev server proxies `/api` to `http://127.0.0.1:18080` by default. Set `
 Accounts:
 
 ```text
-GET    /api/accounts
-POST   /api/accounts
-GET    /api/accounts/{id}
-PATCH  /api/accounts/{id}
-POST   /api/accounts/{id}/archive
-GET    /api/accounts/{id}/balance
+GET    /api/v1/accounts
+POST   /api/v1/accounts
+GET    /api/v1/accounts/{id}
+PATCH  /api/v1/accounts/{id}
+POST   /api/v1/accounts/{id}/archive
+GET    /api/v1/accounts/{id}/balance
 ```
 
 Categories:
 
 ```text
-GET /api/categories
+GET /api/v1/categories
 ```
 
 Transactions:
 
 ```text
-GET    /api/transactions
-POST   /api/transactions
-GET    /api/transactions/{id}
-DELETE /api/transactions/{id}
+GET    /api/v1/transactions
+POST   /api/v1/transactions
+GET    /api/v1/transactions/{id}
+DELETE /api/v1/transactions/{id}
 ```
 
 Transfers:
 
 ```text
-POST /api/transfers
+POST /api/v1/transfers
 ```
 
 Interest rules and accruals:
 
 ```text
-GET   /api/accounts/{id}/interest-rules
-POST  /api/accounts/{id}/interest-rules
-PATCH /api/interest-rules/{id}
-POST  /api/accounts/{id}/accrue-interest
-POST  /api/accounts/{id}/recalculate-interest
+GET   /api/v1/accounts/{id}/interest-rules
+POST  /api/v1/accounts/{id}/interest-rules
+PATCH /api/v1/interest-rules/{id}
+POST  /api/v1/accounts/{id}/accrue-interest
+POST  /api/v1/accounts/{id}/recalculate-interest
 ```
 
 Example: create an account:
 
 ```bash
-curl -X POST http://localhost:8080/api/accounts \
+curl -X POST http://localhost:8080/api/v1/accounts \
   -H "Authorization: Bearer <API_AUTH_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -263,13 +263,13 @@ Example: get account balance:
 
 ```bash
 curl -H "Authorization: Bearer <API_AUTH_TOKEN>" \
-  http://localhost:8080/api/accounts/<account-id>/balance
+  http://localhost:8080/api/v1/accounts/<account-id>/balance
 ```
 
 Example: accrue interest for an account:
 
 ```bash
-curl -X POST http://localhost:8080/api/accounts/<account-id>/accrue-interest \
+curl -X POST http://localhost:8080/api/v1/accounts/<account-id>/accrue-interest \
   -H "Authorization: Bearer <API_AUTH_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -295,7 +295,7 @@ Important behavior:
 Example: clear a promo rate:
 
 ```bash
-curl -X PATCH http://localhost:8080/api/interest-rules/<rule-id> \
+curl -X PATCH http://localhost:8080/api/v1/interest-rules/<rule-id> \
   -H "Authorization: Bearer <API_AUTH_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -360,7 +360,7 @@ The GitHub Actions CI pipeline runs:
 
 ## Security
 
-All `/api/*` routes require Bearer token authentication:
+All `/api/v1/*` routes require Bearer token authentication:
 
 ```http
 Authorization: Bearer <API_AUTH_TOKEN>
@@ -369,6 +369,8 @@ Authorization: Bearer <API_AUTH_TOKEN>
 Do not commit real secrets. Keep local secrets in `configs/.env` and commit only `configs/example.env`.
 
 Auth responses return access-token metadata and set a `__Secure-capitalflow_refresh` cookie for refresh-token rotation. The cookie is scoped to `/auth` and uses `Secure`, `HttpOnly`, and `SameSite=Strict`. `/auth/refresh` and `/auth/logout` use the refresh cookie only.
+
+Auth routes are mounted separately under `/auth/*`.
 
 Public routes:
 
@@ -380,7 +382,7 @@ GET /ready
 Protected routes:
 
 ```text
-/api/*
+/api/v1/*
 ```
 
 ## License

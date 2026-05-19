@@ -1,13 +1,15 @@
 package handlers
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/sunriseex/capitalflow/internal/http/dto"
 	"github.com/sunriseex/capitalflow/internal/models"
+	"github.com/sunriseex/capitalflow/internal/repository"
 	"github.com/sunriseex/capitalflow/internal/services"
 )
 
@@ -22,38 +24,47 @@ func (h *Handler) listTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var (
-		transactions []models.Transaction
-		err          error
-	)
-	if filter.AccountID == "" {
-		transactions, err = h.store.Transactions().ListByUser(r.Context(), userID)
-	} else {
-		transactions, err = h.store.Transactions().ListByAccountForUser(r.Context(), filter.AccountID, userID)
-	}
+	transactionsRepo := h.store.Transactions()
+	transactions, err := listTransactionsForUser(r.Context(), transactionsRepo, userID, &filter)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
 
-	transactions = applyTransactionListFilter(transactions, &filter)
 	writeJSON(w, http.StatusOK, dto.TransactionsFromModels(transactions))
 }
 
-type transactionListFilter struct {
-	AccountID  string
-	CategoryID string
-	Type       models.TransactionType
-	FromDate   time.Time
-	ToDate     time.Time
-	Search     string
-	Limit      int
-	Page       int
+type filteredTransactionLister interface {
+	ListByUserFiltered(ctx context.Context, userID string, filter *repository.TransactionListFilter) ([]models.Transaction, error)
 }
 
-func parseTransactionListFilter(w http.ResponseWriter, r *http.Request) (transactionListFilter, bool) {
+func listTransactionsForUser(ctx context.Context, transactions repository.TransactionRepository, userID string, filter *repository.TransactionListFilter) ([]models.Transaction, error) {
+	if filtered, ok := transactions.(filteredTransactionLister); ok {
+		listed, err := filtered.ListByUserFiltered(ctx, userID, filter)
+		if err != nil {
+			return nil, fmt.Errorf("list filtered transactions: %w", err)
+		}
+		return listed, nil
+	}
+
+	var (
+		listed []models.Transaction
+		err    error
+	)
+	if filter.AccountID == "" {
+		listed, err = transactions.ListByUser(ctx, userID)
+	} else {
+		listed, err = transactions.ListByAccountForUser(ctx, filter.AccountID, userID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list transactions: %w", err)
+	}
+	return applyTransactionListFilter(listed, filter), nil
+}
+
+func parseTransactionListFilter(w http.ResponseWriter, r *http.Request) (repository.TransactionListFilter, bool) {
 	query := r.URL.Query()
-	filter := transactionListFilter{
+	filter := repository.TransactionListFilter{
 		AccountID:  strings.TrimSpace(query.Get("account_id")),
 		CategoryID: strings.TrimSpace(query.Get("category_id")),
 		Type:       models.TransactionType(strings.TrimSpace(query.Get("type"))),
@@ -63,39 +74,39 @@ func parseTransactionListFilter(w http.ResponseWriter, r *http.Request) (transac
 
 	if !validateOptionalUUID(w, filter.AccountID, "account_id") ||
 		!validateOptionalUUID(w, filter.CategoryID, "category_id") {
-		return transactionListFilter{}, false
+		return repository.TransactionListFilter{}, false
 	}
 
 	if filter.Type != "" && !validTransactionFilterType(filter.Type) {
 		writeError(w, http.StatusBadRequest, "validation_error", "invalid type: "+string(filter.Type), nil)
-		return transactionListFilter{}, false
+		return repository.TransactionListFilter{}, false
 	}
 
 	var err error
 	filter.FromDate, err = parseOptionalDate(query.Get("from_date"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
-		return transactionListFilter{}, false
+		return repository.TransactionListFilter{}, false
 	}
 	filter.ToDate, err = parseOptionalDate(query.Get("to_date"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
-		return transactionListFilter{}, false
+		return repository.TransactionListFilter{}, false
 	}
 	if !filter.FromDate.IsZero() && !filter.ToDate.IsZero() && filter.ToDate.Before(filter.FromDate) {
 		writeError(w, http.StatusBadRequest, "validation_error", "to_date must be on or after from_date", nil)
-		return transactionListFilter{}, false
+		return repository.TransactionListFilter{}, false
 	}
 
 	filter.Limit, err = parseOptionalPositiveInt(query.Get("limit"), "limit")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
-		return transactionListFilter{}, false
+		return repository.TransactionListFilter{}, false
 	}
 	filter.Page, err = parseOptionalPositiveInt(query.Get("page"), "page")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
-		return transactionListFilter{}, false
+		return repository.TransactionListFilter{}, false
 	}
 	if filter.Page == 0 {
 		filter.Page = 1
@@ -132,7 +143,7 @@ func parseOptionalPositiveInt(input, field string) (int, error) {
 	return value, nil
 }
 
-func applyTransactionListFilter(transactions []models.Transaction, filter *transactionListFilter) []models.Transaction {
+func applyTransactionListFilter(transactions []models.Transaction, filter *repository.TransactionListFilter) []models.Transaction {
 	filtered := make([]models.Transaction, 0, len(transactions))
 	for i := range transactions {
 		transaction := transactions[i]

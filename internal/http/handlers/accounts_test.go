@@ -192,6 +192,10 @@ type testTransactionRepo struct {
 	createTransferCalls        int
 	createTransferUserID       string
 	createTransferTransactions []models.Transaction
+	listFilteredCalls          int
+	listFilteredUserID         string
+	listFilteredFilter         repository.TransactionListFilter
+	listFilteredTransactions   []models.Transaction
 }
 
 func (r *testTransactionRepo) Create(context.Context, *models.Transaction) error {
@@ -243,6 +247,15 @@ func (r *testTransactionRepo) ListByAccount(context.Context, string) ([]models.T
 
 func (r *testTransactionRepo) ListByAccountForUser(context.Context, string, string) ([]models.Transaction, error) {
 	return nil, nil
+}
+
+func (r *testTransactionRepo) ListByUserFiltered(_ context.Context, userID string, filter *repository.TransactionListFilter) ([]models.Transaction, error) {
+	r.listFilteredCalls++
+	r.listFilteredUserID = userID
+	if filter != nil {
+		r.listFilteredFilter = *filter
+	}
+	return r.listFilteredTransactions, nil
 }
 
 func (r *testTransactionRepo) GetBalanceByAccountForUser(_ context.Context, accountID, _ string) (balanceMinor, transactionCount int64, err error) {

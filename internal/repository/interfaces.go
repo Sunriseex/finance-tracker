@@ -7,6 +7,17 @@ import (
 	"github.com/sunriseex/capitalflow/internal/models"
 )
 
+type TransactionListFilter struct {
+	AccountID  string
+	CategoryID string
+	Type       models.TransactionType
+	FromDate   time.Time
+	ToDate     time.Time
+	Search     string
+	Limit      int
+	Page       int
+}
+
 type AccountRepository interface {
 	Create(ctx context.Context, account *models.Account) error
 	GetByID(ctx context.Context, id string) (*models.Account, error)
