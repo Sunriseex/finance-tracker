@@ -13,6 +13,7 @@ import (
 
 	"github.com/sunriseex/capitalflow/internal/models"
 	"github.com/sunriseex/capitalflow/internal/repository"
+	"github.com/sunriseex/capitalflow/internal/services"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -121,7 +122,7 @@ func TestPostgresRepositoriesIntegration(t *testing.T) {
 	defer pool.Close()
 
 	if _, err := pool.Exec(ctx, `
-		TRUNCATE idempotency_keys, interest_accruals, interest_rules, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
+		TRUNCATE idempotency_keys, interest_accruals, interest_rules, transfers, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatalf("truncate test tables; run migrations first: %v", err)
 	}
@@ -518,7 +519,7 @@ func TestAccountCreateClaimsSingleExistingUser(t *testing.T) {
 	defer pool.Close()
 
 	if _, err := pool.Exec(ctx, `
-		TRUNCATE idempotency_keys, interest_accruals, interest_rules, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
+		TRUNCATE idempotency_keys, interest_accruals, interest_rules, transfers, transactions, categories, accounts, refresh_tokens, auth_audit_events, users RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatalf("truncate test tables; run migrations first: %v", err)
 	}
@@ -1459,6 +1460,179 @@ func TestTransactionCreateTransferPersistsAuditRecord(t *testing.T) {
 		if gotTransactions[i].TransferID == nil || *gotTransactions[i].TransferID != transfer.ID {
 			t.Fatalf("transaction %s transfer_id = %v, want %s", gotTransactions[i].ID, gotTransactions[i].TransferID, transfer.ID)
 		}
+	}
+}
+
+func TestTransactionCreateTransferRejectsBrokenTransferInvariants(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+	now := time.Now().UTC()
+	userID := seedUser(ctx, t, store, "broken-transfer-invariant@example.com")
+	from := transferTestAccount(t, store, userID, "from-broken-transfer")
+	to := transferTestAccount(t, store, userID, "to-broken-transfer")
+
+	standalone := &models.Transaction{
+		ID:          uuid.NewString(),
+		AccountID:   from.ID,
+		Type:        models.TransactionTypeTransferOut,
+		AmountMinor: 100,
+		OccurredAt:  now,
+		CreatedAt:   now,
+	}
+	if err := store.Transactions().CreateForUser(ctx, userID, standalone); err == nil {
+		t.Fatal("standalone transfer transaction must fail")
+	}
+
+	transfer, transferTransactions := transferTestRows(userID, from.ID, to.ID, "RUB", "RUB", 100, 100, "1", now)
+	transferTransactions[1].AmountMinor = 101
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin broken transfer: %v", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	if err := insertTransfer(ctx, tx, transfer); err != nil {
+		t.Fatalf("insert transfer audit: %v", err)
+	}
+	for i := range transferTransactions {
+		if err := insertTransaction(ctx, tx, &transferTransactions[i]); err != nil {
+			t.Fatalf("insert transfer transaction: %v", err)
+		}
+	}
+	if err := tx.Commit(ctx); err == nil {
+		t.Fatal("mismatched transfer legs must fail at commit")
+	}
+}
+
+func TestInterestAccrualTransactionIDIsUnique(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+	now := time.Now().UTC()
+	userID := seedUser(ctx, t, store, "unique-accrual-transaction@example.com")
+	account := transferTestAccount(t, store, userID, "unique-accrual")
+	rule := seedInterestRule(ctx, t, store, account.ID)
+
+	tx, accrual := interestLockTransactionAndAccrual(account.ID, rule.ID, now)
+	if err := store.InterestAccruals().CreateWithTransaction(ctx, tx, accrual); err != nil {
+		t.Fatalf("create first accrual: %v", err)
+	}
+
+	duplicate := *accrual
+	duplicate.ID = uuid.NewString()
+	duplicate.AccrualDate = pgDateOnly(now.AddDate(0, 0, 1))
+	if err := store.InterestAccruals().Create(ctx, &duplicate); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("duplicate transaction accrual err = %v, want ErrConflict", err)
+	}
+}
+
+func TestFinancialSchemaHasExpectedIndexesAndConstraints(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+
+	expectedIndexes := []string{
+		"transactions_related_account_id_idx",
+		"transactions_category_id_idx",
+		"interest_accruals_rule_id_idx",
+		"categories_parent_id_idx",
+	}
+	for _, indexName := range expectedIndexes {
+		var exists bool
+		if err := store.pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_indexes
+				WHERE schemaname = 'public' AND indexname = $1
+			)
+		`, indexName).Scan(&exists); err != nil {
+			t.Fatalf("check index %s: %v", indexName, err)
+		}
+		if !exists {
+			t.Fatalf("index %s does not exist", indexName)
+		}
+	}
+
+	expectedConstraints := []string{
+		"transactions_transfer_type_id_check",
+		"interest_accruals_transaction_id_unique",
+	}
+	for _, constraintName := range expectedConstraints {
+		var exists bool
+		if err := store.pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conname = $1
+			)
+		`, constraintName).Scan(&exists); err != nil {
+			t.Fatalf("check constraint %s: %v", constraintName, err)
+		}
+		if !exists {
+			t.Fatalf("constraint %s does not exist", constraintName)
+		}
+	}
+}
+
+func TestTransactionRepositoryGetBalanceByAccountForUserMatchesBalanceService(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+	now := time.Now().UTC()
+	userID := seedUser(ctx, t, store, "balance-owner@example.com")
+	otherUserID := seedUser(ctx, t, store, "balance-other@example.com")
+	account := transferTestAccount(t, store, userID, "balance-primary")
+	transferPeer := transferTestAccount(t, store, userID, "balance-peer")
+	otherAccount := transferTestAccount(t, store, otherUserID, "balance-other")
+
+	transactions := []models.Transaction{
+		{ID: uuid.NewString(), AccountID: account.ID, Type: models.TransactionTypeInitialBalance, AmountMinor: 100_000, OccurredAt: now, CreatedAt: now},
+		{ID: uuid.NewString(), AccountID: account.ID, Type: models.TransactionTypeIncome, AmountMinor: 50_000, OccurredAt: now, CreatedAt: now},
+		{ID: uuid.NewString(), AccountID: account.ID, Type: models.TransactionTypeExpense, AmountMinor: 20_000, OccurredAt: now, CreatedAt: now},
+		{ID: uuid.NewString(), AccountID: account.ID, Type: models.TransactionTypeAdjustment, AmountMinor: -5_000, OccurredAt: now, CreatedAt: now},
+		{ID: uuid.NewString(), AccountID: account.ID, Type: models.TransactionTypeInterestIncome, AmountMinor: 300, OccurredAt: now, CreatedAt: now},
+	}
+	for i := range transactions {
+		if err := store.Transactions().CreateForUser(ctx, userID, &transactions[i]); err != nil {
+			t.Fatalf("create balance transaction %s: %v", transactions[i].Type, err)
+		}
+	}
+
+	transferOut, transferOutRows := transferTestRows(userID, account.ID, transferPeer.ID, "RUB", "RUB", 25_000, 25_000, "1", now)
+	if err := store.Transactions().CreateTransfer(ctx, transferOut, transferOutRows); err != nil {
+		t.Fatalf("create transfer out: %v", err)
+	}
+	transferIn, transferInRows := transferTestRows(userID, transferPeer.ID, account.ID, "RUB", "RUB", 10_000, 10_000, "1", now)
+	if err := store.Transactions().CreateTransfer(ctx, transferIn, transferInRows); err != nil {
+		t.Fatalf("create transfer in: %v", err)
+	}
+
+	otherTransaction := &models.Transaction{ID: uuid.NewString(), AccountID: otherAccount.ID, Type: models.TransactionTypeIncome, AmountMinor: 999_999, OccurredAt: now, CreatedAt: now}
+	if err := store.Transactions().CreateForUser(ctx, otherUserID, otherTransaction); err != nil {
+		t.Fatalf("create other user transaction: %v", err)
+	}
+
+	listed, err := store.Transactions().ListByUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("list user transactions: %v", err)
+	}
+	want, err := services.NewBalanceService().Calculate(ctx, services.CalculateBalanceRequest{
+		AccountID:    account.ID,
+		Transactions: listed,
+	})
+	if err != nil {
+		t.Fatalf("calculate expected balance: %v", err)
+	}
+	gotBalance, gotCount, err := store.Transactions().GetBalanceByAccountForUser(ctx, account.ID, userID)
+	if err != nil {
+		t.Fatalf("get SQL balance: %v", err)
+	}
+	if gotBalance != want.BalanceMinor || gotCount != int64(want.Count) {
+		t.Fatalf("SQL balance/count = %d/%d, want %d/%d", gotBalance, gotCount, want.BalanceMinor, want.Count)
+	}
+
+	otherBalance, otherCount, err := store.Transactions().GetBalanceByAccountForUser(ctx, account.ID, otherUserID)
+	if err != nil {
+		t.Fatalf("get other user balance: %v", err)
+	}
+	if otherBalance != 0 || otherCount != 0 {
+		t.Fatalf("other user balance/count = %d/%d, want 0/0", otherBalance, otherCount)
 	}
 }
 
