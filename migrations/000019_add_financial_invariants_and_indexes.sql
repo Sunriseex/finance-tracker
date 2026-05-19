@@ -14,6 +14,7 @@ CREATE INDEX transactions_category_id_idx ON transactions (category_id);
 CREATE INDEX interest_accruals_rule_id_idx ON interest_accruals (rule_id);
 CREATE INDEX categories_parent_id_idx ON categories (parent_id);
 
+-- +goose StatementBegin
 CREATE FUNCTION validate_transfer_integrity(p_transfer_id UUID)
 RETURNS void
 LANGUAGE plpgsql
@@ -59,7 +60,9 @@ BEGIN
     END IF;
 END;
 $$;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE FUNCTION validate_transfer_integrity_from_transfer()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -69,7 +72,9 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE FUNCTION validate_transfer_integrity_from_transaction()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -87,6 +92,7 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+-- +goose StatementEnd
 
 CREATE CONSTRAINT TRIGGER transfers_integrity_check
 AFTER INSERT OR UPDATE ON transfers
