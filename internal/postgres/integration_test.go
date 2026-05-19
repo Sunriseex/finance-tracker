@@ -1739,6 +1739,70 @@ func TestTransactionRepositoryListByUserFilteredAppliesSQLFiltersAndPagination(t
 
 }
 
+func TestTransactionRepositoryListByUserFilteredTreatsSearchAsLiteralSubstring(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+
+	userID := seedUser(ctx, t, store, "filtered-literal-search@example.com")
+	account := transferTestAccount(t, store, userID, "filtered-literal-search")
+
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	transactions := []models.Transaction{
+		{
+			ID:          uuid.NewString(),
+			AccountID:   account.ID,
+			Type:        models.TransactionTypeIncome,
+			AmountMinor: 100,
+			Description: "Cashback 5%",
+			OccurredAt:  now,
+			CreatedAt:   now,
+		},
+		{
+			ID:          uuid.NewString(),
+			AccountID:   account.ID,
+			Type:        models.TransactionTypeIncome,
+			AmountMinor: 200,
+			Description: "Cashback normal",
+			OccurredAt:  now.Add(time.Hour),
+			CreatedAt:   now.Add(time.Hour),
+		},
+		{
+			ID:          uuid.NewString(),
+			AccountID:   account.ID,
+			Type:        models.TransactionTypeIncome,
+			AmountMinor: 300,
+			Description: "fee_code",
+			OccurredAt:  now.Add(2 * time.Hour),
+			CreatedAt:   now.Add(2 * time.Hour),
+		},
+	}
+	for i := range transactions {
+		if err := store.Transactions().CreateForUser(ctx, userID, &transactions[i]); err != nil {
+			t.Fatalf("create transaction: %v", err)
+		}
+	}
+
+	filteredPercent, err := store.Transactions().(*TransactionRepository).ListByUserFiltered(ctx, userID, &repository.TransactionListFilter{
+		Search: "%",
+	})
+	if err != nil {
+		t.Fatalf("list percent search: %v", err)
+	}
+	if len(filteredPercent) != 1 || filteredPercent[0].ID != transactions[0].ID {
+		t.Fatalf("percent search = %+v, want only %s", filteredPercent, transactions[0].ID)
+	}
+
+	filteredUnderscore, err := store.Transactions().(*TransactionRepository).ListByUserFiltered(ctx, userID, &repository.TransactionListFilter{
+		Search: "_",
+	})
+	if err != nil {
+		t.Fatalf("list underscore search: %v", err)
+	}
+	if len(filteredUnderscore) != 1 || filteredUnderscore[0].ID != transactions[2].ID {
+		t.Fatalf("underscore search = %+v, want only %s", filteredUnderscore, transactions[2].ID)
+	}
+}
+
 func transferTestAccount(t *testing.T, store *Store, userID, name string) *models.Account {
 	t.Helper()
 	now := time.Now().UTC()

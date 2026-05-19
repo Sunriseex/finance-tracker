@@ -236,7 +236,8 @@ func (r *TransactionRepository) ListByUserFiltered(ctx context.Context, userID s
 		query += " AND t.occurred_at < " + addArg(transactionFilterDate(filter.ToDate).AddDate(0, 0, 1))
 	}
 	if strings.TrimSpace(filter.Search) != "" {
-		query += " AND lower(t.description) LIKE " + addArg("%"+strings.ToLower(strings.TrimSpace(filter.Search))+"%")
+		search := strings.ToLower(strings.TrimSpace(filter.Search))
+		query += " AND strpos(lower(t.description), " + addArg(search) + ") > 0"
 	}
 
 	query += " ORDER BY t.occurred_at, t.created_at"
