@@ -34,8 +34,9 @@ export function App() {
 
   const [hasSession, setHasSession] = useState(() => Boolean(getStoredToken()));
   const [sessionNonce, setSessionNonce] = useState(0);
-  const [view, setView] = useState<View>("dashboard");
-  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const initialRoute = currentRoute();
+  const [view, setView] = useState<View>(initialRoute.view);
+  const [selectedAccountId, setSelectedAccountId] = useState(initialRoute.accountId);
   const [quickAction, setQuickAction] = useState<QuickAction>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => storedTheme());
@@ -76,6 +77,26 @@ export function App() {
     }
   }, [sessionInvalid]);
 
+  useEffect(() => {
+    const handlePopState = () => {
+      const route = currentRoute();
+      setView(route.view);
+      setSelectedAccountId(route.accountId);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  function navigateTo(nextView: View, accountId = "") {
+    setView(nextView);
+    setSelectedAccountId(accountId);
+    const nextPath = pathForRoute(nextView, accountId);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+  }
+
   function handleAuthenticated() {
     queryClient.clear();
     setSessionNonce((nonce) => nonce + 1);
@@ -86,6 +107,7 @@ export function App() {
     clearStoredSession();
     queryClient.clear();
     setSelectedAccountId("");
+    setView("dashboard");
     setQuickAction(null);
     setAuthOpen(false);
     setSessionNonce((nonce) => nonce + 1);
@@ -105,19 +127,19 @@ export function App() {
         </div>
 
         <nav>
-          <button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}>
+          <button className={view === "dashboard" ? "active" : ""} onClick={() => navigateTo("dashboard")}>
             <Landmark size={16} /> Dashboard
           </button>
 
-          <button className={view === "accounts" ? "active" : ""} onClick={() => setView("accounts")}>
+          <button className={view === "accounts" ? "active" : ""} onClick={() => navigateTo("accounts")}>
             <Wallet size={16} /> Accounts
           </button>
 
-          <button className={view === "transactions" ? "active" : ""} onClick={() => setView("transactions")}>
+          <button className={view === "transactions" ? "active" : ""} onClick={() => navigateTo("transactions")}>
             <ArrowRightLeft size={16} /> Transactions
           </button>
 
-          <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
+          <button className={view === "settings" ? "active" : ""} onClick={() => navigateTo("settings")}>
             <Settings size={16} /> Settings
           </button>
         </nav>
@@ -167,21 +189,20 @@ export function App() {
             key={primaryCurrency}
             primaryCurrency={primaryCurrency}
             onOpenAccount={(id) => {
-              setSelectedAccountId(id);
-              setView("accounts");
+              navigateTo("accounts", id);
             }}
           />
         ) : null}
 
         {view === "accounts" ? (
           selectedAccount ? (
-            <AccountDetails account={selectedAccount} onBack={() => setSelectedAccountId("")} />
+            <AccountDetails account={selectedAccount} onBack={() => navigateTo("accounts")} />
           ) : (
             <AccountsView
               accounts={accounts.data ?? []}
               isLoading={accounts.isLoading}
               error={accounts.error}
-              onSelect={setSelectedAccountId}
+              onSelect={(id) => navigateTo("accounts", id)}
             />
           )
         ) : null}
@@ -428,6 +449,28 @@ function titleForView(view: View) {
     transactions: "Transactions",
     settings: "Settings",
   }[view];
+}
+
+function currentRoute(): { view: View; accountId: string } {
+  const segments = window.location.pathname.split("/").filter(Boolean);
+  const view = segments[0];
+
+  if (view === "accounts") {
+    return { view: "accounts", accountId: segments[1] ? decodeURIComponent(segments[1]) : "" };
+  }
+
+  if (view === "transactions" || view === "settings" || view === "dashboard") {
+    return { view, accountId: "" };
+  }
+
+  return { view: "dashboard" as const, accountId: "" };
+}
+
+function pathForRoute(view: View, accountId = "") {
+  if (view === "accounts" && accountId) {
+    return `/accounts/${encodeURIComponent(accountId)}`;
+  }
+  return `/${view}`;
 }
 
 function quickActionTitle(action: NonNullable<QuickAction>) {
