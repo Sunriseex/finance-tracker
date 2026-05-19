@@ -8,7 +8,7 @@ import type { Account, InterestRule, Transaction } from "../../api/types";
 import { errorMessage, invalidateMoney } from "../../shared/api/query";
 import { today } from "../../shared/constants";
 import { dateLabel } from "../../shared/date";
-import { Button, ChartShell, Empty, Panel } from "../../shared/ui";
+import { Button, ChartShell, Dialog, Empty, Panel } from "../../shared/ui";
 import { TransactionsTable } from "../transactions/TransactionsTable";
 import { EditAccountForm } from "./EditAccountForm";
 
@@ -81,11 +81,9 @@ export function AccountDetails({ account, onBack }: { account: Account; onBack: 
       </Panel>
 
       {editOpen ? (
-        <div className="modal-backdrop" onClick={() => setEditOpen(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <EditAccountForm account={account} onDone={() => setEditOpen(false)} />
-          </div>
-        </div>
+        <Dialog title="Edit account" onClose={() => setEditOpen(false)}>
+          <EditAccountForm account={account} onDone={() => setEditOpen(false)} />
+        </Dialog>
       ) : null}
     </div>
   );

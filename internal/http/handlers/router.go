@@ -149,6 +149,7 @@ func NewRouter(store Store, cfg *RouterConfig) http.Handler {
 		r.Get("/transactions", h.listTransactions)
 		r.Get("/transactions/{id}", h.getTransaction)
 
+		r.Get("/interest-rules", h.listUserInterestRules)
 		r.Get("/accounts/{id}/interest-rules", h.listInterestRules)
 
 		r.Get("/dashboard/summary", h.getDashboardSummary)

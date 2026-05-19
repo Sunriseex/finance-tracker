@@ -32,6 +32,31 @@ func (h *Handler) listInterestRules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto.InterestRulesFromModels(rules))
 }
 
+type userInterestRuleLister interface {
+	ListByUser(ctx context.Context, userID string) ([]models.InterestRule, error)
+}
+
+func (h *Handler) listUserInterestRules(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(w, r)
+	if !ok {
+		return
+	}
+
+	rulesRepo, ok := h.store.InterestRules().(userInterestRuleLister)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "interest rule listing by user is not supported", nil)
+		return
+	}
+
+	rules, err := rulesRepo.ListByUser(r.Context(), userID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.InterestRulesFromModels(rules))
+}
+
 func (h *Handler) createInterestRule(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateInterestRuleRequest
 	if err := decodeJSON(r, &req); err != nil {

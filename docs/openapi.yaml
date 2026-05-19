@@ -442,6 +442,21 @@ paths:
                 $ref: "#/components/schemas/TransferResponse"
         default:
           $ref: "#/components/responses/APIError"
+  /interest-rules:
+    get:
+      tags: [Interest Rules]
+      summary: List current user interest rules
+      responses:
+        "200":
+          description: Interest rules for accounts owned by the current user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InterestRule"
+        default:
+          $ref: "#/components/responses/APIError"
   /accounts/{id}/interest-rules:
     parameters:
       - $ref: "#/components/parameters/ID"

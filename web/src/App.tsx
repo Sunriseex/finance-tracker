@@ -26,15 +26,17 @@ import { TransferForm } from "./features/transactions/TransferForm";
 import type { QuickAction, Theme, View } from "./shared/constants";
 import { themeStorageKey } from "./shared/constants";
 import { currencyOptions } from "./shared/currencies";
-import { Button, Field, IconButton, Input, Select } from "./shared/ui";
+import { errorMessage } from "./shared/api/query";
+import { Button, Dialog, Empty, Field, IconButton, Input, Select } from "./shared/ui";
 
 export function App() {
   const queryClient = useQueryClient();
 
   const [hasSession, setHasSession] = useState(() => Boolean(getStoredToken()));
   const [sessionNonce, setSessionNonce] = useState(0);
-  const [view, setView] = useState<View>("dashboard");
-  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const initialRoute = currentRoute();
+  const [view, setView] = useState<View>(initialRoute.view);
+  const [selectedAccountId, setSelectedAccountId] = useState(initialRoute.accountId);
   const [quickAction, setQuickAction] = useState<QuickAction>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => storedTheme());
@@ -61,6 +63,8 @@ export function App() {
   const selectedAccount = accounts.data?.find((account) => account.id === selectedAccountId);
   const primaryCurrency = profile.data?.user.primary_currency ?? "RUB";
   const sessionInvalid = profile.error instanceof ApiClientError && profile.error.status === 401;
+  const accountsReady = accounts.isSuccess && (accounts.data?.length ?? 0) > 0;
+  const transactionActionsDisabled = accounts.isLoading || Boolean(accounts.error) || !accountsReady;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -73,6 +77,26 @@ export function App() {
     }
   }, [sessionInvalid]);
 
+  useEffect(() => {
+    const handlePopState = () => {
+      const route = currentRoute();
+      setView(route.view);
+      setSelectedAccountId(route.accountId);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  function navigateTo(nextView: View, accountId = "") {
+    setView(nextView);
+    setSelectedAccountId(accountId);
+    const nextPath = pathForRoute(nextView, accountId);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+  }
+
   function handleAuthenticated() {
     queryClient.clear();
     setSessionNonce((nonce) => nonce + 1);
@@ -83,6 +107,7 @@ export function App() {
     clearStoredSession();
     queryClient.clear();
     setSelectedAccountId("");
+    setView("dashboard");
     setQuickAction(null);
     setAuthOpen(false);
     setSessionNonce((nonce) => nonce + 1);
@@ -102,19 +127,19 @@ export function App() {
         </div>
 
         <nav>
-          <button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}>
+          <button className={view === "dashboard" ? "active" : ""} onClick={() => navigateTo("dashboard")}>
             <Landmark size={16} /> Dashboard
           </button>
 
-          <button className={view === "accounts" ? "active" : ""} onClick={() => setView("accounts")}>
+          <button className={view === "accounts" ? "active" : ""} onClick={() => navigateTo("accounts")}>
             <Wallet size={16} /> Accounts
           </button>
 
-          <button className={view === "transactions" ? "active" : ""} onClick={() => setView("transactions")}>
+          <button className={view === "transactions" ? "active" : ""} onClick={() => navigateTo("transactions")}>
             <ArrowRightLeft size={16} /> Transactions
           </button>
 
-          <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
+          <button className={view === "settings" ? "active" : ""} onClick={() => navigateTo("settings")}>
             <Settings size={16} /> Settings
           </button>
         </nav>
@@ -141,15 +166,15 @@ export function App() {
               {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </IconButton>
 
-            <IconButton title="Income" onClick={() => setQuickAction("income")}>
+            <IconButton title="Income" disabled={transactionActionsDisabled} onClick={() => setQuickAction("income")}>
               <ArrowDownLeft size={18} />
             </IconButton>
 
-            <IconButton title="Expense" onClick={() => setQuickAction("expense")}>
+            <IconButton title="Expense" disabled={transactionActionsDisabled} onClick={() => setQuickAction("expense")}>
               <ArrowUpRight size={18} />
             </IconButton>
 
-            <IconButton title="Transfer" onClick={() => setQuickAction("transfer")}>
+            <IconButton title="Transfer" disabled={transactionActionsDisabled} onClick={() => setQuickAction("transfer")}>
               <ArrowRightLeft size={18} />
             </IconButton>
 
@@ -164,46 +189,63 @@ export function App() {
             key={primaryCurrency}
             primaryCurrency={primaryCurrency}
             onOpenAccount={(id) => {
-              setSelectedAccountId(id);
-              setView("accounts");
+              navigateTo("accounts", id);
             }}
           />
         ) : null}
 
         {view === "accounts" ? (
           selectedAccount ? (
-            <AccountDetails account={selectedAccount} onBack={() => setSelectedAccountId("")} />
+            <AccountDetails account={selectedAccount} onBack={() => navigateTo("accounts")} />
           ) : (
-            <AccountsView accounts={accounts.data ?? []} onSelect={setSelectedAccountId} />
+            <AccountsView
+              accounts={accounts.data ?? []}
+              isLoading={accounts.isLoading}
+              error={accounts.error}
+              onSelect={(id) => navigateTo("accounts", id)}
+            />
           )
         ) : null}
 
         {view === "transactions" ? (
-          <TransactionsView accounts={accounts.data ?? []} categories={categories.data ?? []} />
+          <TransactionsView
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            accountsLoading={accounts.isLoading}
+            accountsError={accounts.error}
+            categoriesLoading={categories.isLoading}
+            categoriesError={categories.error}
+          />
         ) : null}
 
-        {view === "settings" ? <SettingsView profile={profile.data} /> : null}
+        {view === "settings" ? (
+          profile.isLoading ? (
+            <Empty>Loading profile</Empty>
+          ) : profile.error ? (
+            <div className="error inline-error">{errorMessage(profile.error)}</div>
+          ) : (
+            <SettingsView profile={profile.data} />
+          )
+        ) : null}
       </main>
 
       {quickAction ? (
-        <div className="modal-backdrop" onClick={() => setQuickAction(null)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            {quickAction === "account" ? <CreateAccountForm onDone={() => setQuickAction(null)} /> : null}
+        <Dialog title={quickActionTitle(quickAction)} onClose={() => setQuickAction(null)}>
+          {quickAction === "account" ? <CreateAccountForm onDone={() => setQuickAction(null)} /> : null}
 
-            {quickAction === "transfer" ? (
-              <TransferForm accounts={accounts.data ?? []} onDone={() => setQuickAction(null)} />
-            ) : null}
+          {quickAction === "transfer" ? (
+            <TransferForm accounts={accounts.data ?? []} onDone={() => setQuickAction(null)} />
+          ) : null}
 
-            {quickAction === "income" || quickAction === "expense" ? (
-              <TransactionForm
-                accounts={accounts.data ?? []}
-                categories={categories.data ?? []}
-                fixedType={quickAction}
-                onDone={() => setQuickAction(null)}
-              />
-            ) : null}
-          </div>
-        </div>
+          {quickAction === "income" || quickAction === "expense" ? (
+            <TransactionForm
+              accounts={accounts.data ?? []}
+              categories={categories.data ?? []}
+              fixedType={quickAction}
+              onDone={() => setQuickAction(null)}
+            />
+          ) : null}
+        </Dialog>
       ) : null}
     </div>
   );
@@ -407,6 +449,37 @@ function titleForView(view: View) {
     transactions: "Transactions",
     settings: "Settings",
   }[view];
+}
+
+function currentRoute(): { view: View; accountId: string } {
+  const segments = window.location.pathname.split("/").filter(Boolean);
+  const view = segments[0];
+
+  if (view === "accounts") {
+    return { view: "accounts", accountId: segments[1] ? decodeURIComponent(segments[1]) : "" };
+  }
+
+  if (view === "transactions" || view === "settings" || view === "dashboard") {
+    return { view, accountId: "" };
+  }
+
+  return { view: "dashboard" as const, accountId: "" };
+}
+
+function pathForRoute(view: View, accountId = "") {
+  if (view === "accounts" && accountId) {
+    return `/accounts/${encodeURIComponent(accountId)}`;
+  }
+  return `/${view}`;
+}
+
+function quickActionTitle(action: NonNullable<QuickAction>) {
+  return {
+    income: "Create income",
+    expense: "Create expense",
+    transfer: "Create transfer",
+    account: "Create account",
+  }[action];
 }
 
 function storedTheme(): Theme {

@@ -37,6 +37,15 @@ func (r *InterestRuleRepository) ListByAccount(ctx context.Context, accountID st
 	return listInterestRules(ctx, r.pool, selectInterestRuleSQL+` WHERE account_id = $1 ORDER BY start_date, created_at`, accountID)
 }
 
+func (r *InterestRuleRepository) ListByUser(ctx context.Context, userID string) ([]models.InterestRule, error) {
+	return listInterestRules(ctx, r.pool, selectInterestRuleSQL+`
+		WHERE EXISTS (
+			SELECT 1 FROM accounts a WHERE a.id = interest_rules.account_id AND a.owner_user_id = $1
+		)
+		ORDER BY account_id, start_date, created_at
+	`, userID)
+}
+
 func listInterestRules(ctx context.Context, db queryer, query string, args ...any) ([]models.InterestRule, error) {
 	rows, err := db.Query(ctx, query, args...)
 	if err != nil {

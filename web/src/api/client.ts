@@ -262,7 +262,8 @@ export const api = {
 
   categories: () => apiFetch<Category[]>("/categories"),
 
-  interestRules: (accountId: string) => apiFetch<InterestRule[]>(`/accounts/${accountId}/interest-rules`),
+  interestRules: (accountId?: string) =>
+    apiFetch<InterestRule[]>(accountId ? `/accounts/${accountId}/interest-rules` : "/interest-rules"),
 
   createAccount: (input: CreateAccountRequest) =>
     apiFetch<Account>("/accounts", { method: "POST", body: JSON.stringify(input) }),

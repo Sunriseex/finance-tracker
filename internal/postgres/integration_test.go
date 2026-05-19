@@ -1739,6 +1739,28 @@ func TestTransactionRepositoryListByUserFilteredAppliesSQLFiltersAndPagination(t
 
 }
 
+func TestInterestRuleRepositoryListByUserScopesRulesToOwnedAccounts(t *testing.T) {
+	ctx := t.Context()
+	store := newTestStore(t)
+	userID := seedUser(ctx, t, store, "interest-rules-user@example.com")
+	otherUserID := seedUser(ctx, t, store, "interest-rules-other@example.com")
+	account := transferTestAccount(t, store, userID, "rules-primary")
+	otherAccount := transferTestAccount(t, store, otherUserID, "rules-foreign")
+	rule := seedInterestRule(ctx, t, store, account.ID)
+	seedInterestRule(ctx, t, store, otherAccount.ID)
+
+	got, err := store.InterestRules().(*InterestRuleRepository).ListByUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("list user interest rules: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("rules count = %d, want 1: %+v", len(got), got)
+	}
+	if got[0].ID != rule.ID {
+		t.Fatalf("rule id = %s, want %s", got[0].ID, rule.ID)
+	}
+}
+
 func TestTransactionRepositoryListByUserFilteredTreatsSearchAsLiteralSubstring(t *testing.T) {
 	ctx := t.Context()
 	store := newTestStore(t)
