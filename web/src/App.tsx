@@ -26,7 +26,8 @@ import { TransferForm } from "./features/transactions/TransferForm";
 import type { QuickAction, Theme, View } from "./shared/constants";
 import { themeStorageKey } from "./shared/constants";
 import { currencyOptions } from "./shared/currencies";
-import { Button, Dialog, Field, IconButton, Input, Select } from "./shared/ui";
+import { errorMessage } from "./shared/api/query";
+import { Button, Dialog, Empty, Field, IconButton, Input, Select } from "./shared/ui";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -61,6 +62,8 @@ export function App() {
   const selectedAccount = accounts.data?.find((account) => account.id === selectedAccountId);
   const primaryCurrency = profile.data?.user.primary_currency ?? "RUB";
   const sessionInvalid = profile.error instanceof ApiClientError && profile.error.status === 401;
+  const accountsReady = accounts.isSuccess && (accounts.data?.length ?? 0) > 0;
+  const transactionActionsDisabled = accounts.isLoading || Boolean(accounts.error) || !accountsReady;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -141,15 +144,15 @@ export function App() {
               {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </IconButton>
 
-            <IconButton title="Income" onClick={() => setQuickAction("income")}>
+            <IconButton title="Income" disabled={transactionActionsDisabled} onClick={() => setQuickAction("income")}>
               <ArrowDownLeft size={18} />
             </IconButton>
 
-            <IconButton title="Expense" onClick={() => setQuickAction("expense")}>
+            <IconButton title="Expense" disabled={transactionActionsDisabled} onClick={() => setQuickAction("expense")}>
               <ArrowUpRight size={18} />
             </IconButton>
 
-            <IconButton title="Transfer" onClick={() => setQuickAction("transfer")}>
+            <IconButton title="Transfer" disabled={transactionActionsDisabled} onClick={() => setQuickAction("transfer")}>
               <ArrowRightLeft size={18} />
             </IconButton>
 
@@ -174,15 +177,35 @@ export function App() {
           selectedAccount ? (
             <AccountDetails account={selectedAccount} onBack={() => setSelectedAccountId("")} />
           ) : (
-            <AccountsView accounts={accounts.data ?? []} onSelect={setSelectedAccountId} />
+            <AccountsView
+              accounts={accounts.data ?? []}
+              isLoading={accounts.isLoading}
+              error={accounts.error}
+              onSelect={setSelectedAccountId}
+            />
           )
         ) : null}
 
         {view === "transactions" ? (
-          <TransactionsView accounts={accounts.data ?? []} categories={categories.data ?? []} />
+          <TransactionsView
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            accountsLoading={accounts.isLoading}
+            accountsError={accounts.error}
+            categoriesLoading={categories.isLoading}
+            categoriesError={categories.error}
+          />
         ) : null}
 
-        {view === "settings" ? <SettingsView profile={profile.data} /> : null}
+        {view === "settings" ? (
+          profile.isLoading ? (
+            <Empty>Loading profile</Empty>
+          ) : profile.error ? (
+            <div className="error inline-error">{errorMessage(profile.error)}</div>
+          ) : (
+            <SettingsView profile={profile.data} />
+          )
+        ) : null}
       </main>
 
       {quickAction ? (

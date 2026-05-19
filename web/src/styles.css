@@ -382,7 +382,8 @@ nav button:focus-visible {
   outline-offset: 2px;
 }
 
-.button:disabled {
+.button:disabled,
+.icon-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }

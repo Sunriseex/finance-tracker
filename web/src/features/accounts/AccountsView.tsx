@@ -5,9 +5,19 @@ import { formatMoney } from "../../api/money";
 import type { Account, InterestRule } from "../../api/types";
 import { accountTypes } from "../../shared/constants";
 import { errorMessage } from "../../shared/api/query";
-import { Button, Panel, Select } from "../../shared/ui";
+import { Button, Empty, Panel, Select } from "../../shared/ui";
 
-export function AccountsView({ accounts, onSelect }: { accounts: Account[]; onSelect: (id: string) => void }) {
+export function AccountsView({
+  accounts,
+  isLoading = false,
+  error = null,
+  onSelect,
+}: {
+  accounts: Account[];
+  isLoading?: boolean;
+  error?: unknown;
+  onSelect: (id: string) => void;
+}) {
   const [type, setType] = useState("");
   const summary = useQuery({ queryKey: ["dashboard", "summary"], queryFn: api.dashboardSummary });
   const rules = useQuery({ queryKey: ["interest-rules"], queryFn: () => api.interestRules() });
@@ -25,13 +35,16 @@ export function AccountsView({ accounts, onSelect }: { accounts: Account[]; onSe
         </Select>
       }
     >
+      {isLoading ? <Empty>Loading accounts</Empty> : null}
+      {error ? <div className="error inline-error">{errorMessage(error)}</div> : null}
+      {!isLoading && !error && !filtered.length ? <Empty>No accounts</Empty> : null}
       <div className="table-wrap">
         <table>
           <thead>
             <tr><th>Name</th><th>Bank</th><th>Type</th><th>Balance</th><th>Rate</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
-            {filtered.map((account) => (
+            {!isLoading && !error ? filtered.map((account) => (
               <tr key={account.id}>
                 <td>{account.name}</td>
                 <td>{account.bank || "-"}</td>
@@ -41,7 +54,7 @@ export function AccountsView({ accounts, onSelect }: { accounts: Account[]; onSe
                 <td>{account.is_active ? "active" : "archived"}</td>
                 <td><Button onClick={() => onSelect(account.id)}>Open</Button></td>
               </tr>
-            ))}
+            )) : null}
           </tbody>
         </table>
       </div>
