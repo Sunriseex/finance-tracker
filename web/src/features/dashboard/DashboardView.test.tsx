@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardCashflow, DashboardInterestIncome, DashboardSummary } from "../../api/types";
@@ -60,7 +60,13 @@ const interest: DashboardInterestIncome = {
   buckets: [],
 };
 
-function renderDashboardView(onOpenAccount = vi.fn()) {
+function renderDashboardView({
+  onOpenAccount = vi.fn<(id: string) => void>(),
+  primaryCurrency = "RUB",
+}: {
+  onOpenAccount?: (id: string) => void;
+  primaryCurrency?: string;
+} = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -70,7 +76,7 @@ function renderDashboardView(onOpenAccount = vi.fn()) {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <DashboardView primaryCurrency="RUB" onOpenAccount={onOpenAccount} />
+      <DashboardView primaryCurrency={primaryCurrency} onOpenAccount={onOpenAccount} />
     </QueryClientProvider>,
   );
 
@@ -91,9 +97,69 @@ describe("DashboardView", () => {
     });
   });
 
+  it("shows loading and summary API errors", async () => {
+    mocks.dashboardSummary.mockReturnValueOnce(new Promise(() => {}));
+    renderDashboardView();
+
+    expect(screen.getByText("Loading dashboard")).toBeInTheDocument();
+
+    mocks.dashboardSummary.mockRejectedValueOnce(new Error("Dashboard unavailable"));
+    renderDashboardView();
+
+    expect(await screen.findByText("Dashboard unavailable")).toBeInTheDocument();
+  });
+
+  it("renders empty balance and transaction states", async () => {
+    mocks.dashboardSummary.mockResolvedValueOnce({
+      ...summary,
+      accounts_count: 0,
+      active_accounts_count: 0,
+      balances: [],
+      account_balances: [],
+      recent_transactions: [],
+      recent_transactions_returned: 0,
+    } satisfies DashboardSummary);
+
+    renderDashboardView();
+
+    expect(await screen.findByText("0 active accounts across 1 currency")).toBeInTheDocument();
+    expect(screen.getByText("No positive balances")).toBeInTheDocument();
+    expect(screen.getByText("No transactions")).toBeInTheDocument();
+  });
+
+  it("switches dashboard currency and reloads conversion rates", async () => {
+    const user = userEvent.setup();
+    mocks.dashboardSummary.mockResolvedValueOnce({
+      ...summary,
+      balances: [
+        { currency: "RUB", amount_minor: 100_000 },
+        { currency: "USD", amount_minor: 100_00 },
+      ],
+    } satisfies DashboardSummary);
+
+    renderDashboardView();
+
+    await screen.findByRole("button", { name: "USD" });
+    expect(mocks.currencyRates).toHaveBeenCalledWith("RUB");
+
+    await user.click(screen.getByRole("button", { name: "USD" }));
+
+    expect(await screen.findByText("Cashflow (USD)")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.currencyRates).toHaveBeenCalledWith("USD"));
+  });
+
+  it("shows currency rate errors", async () => {
+    mocks.currencyRates.mockRejectedValueOnce(new Error("Rate provider unavailable"));
+
+    renderDashboardView();
+
+    expect(await screen.findByText("Rate provider unavailable")).toBeInTheDocument();
+  });
+
   it("opens account details from a keyboard-accessible account balance action", async () => {
     const user = userEvent.setup();
-    const { onOpenAccount } = renderDashboardView();
+    const onOpenAccount = vi.fn<(id: string) => void>();
+    renderDashboardView({ onOpenAccount });
 
     const action = await screen.findByRole("button", { name: "Open Card account" });
     action.focus();
